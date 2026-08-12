@@ -3,6 +3,7 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { quizUrl } from "@/lib/quizUrls";
 
 export default function RegisterForm() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function RegisterForm() {
         return;
       }
       // The quiz page itself branches on status (start / resume / completed).
-      router.push(`/quiz?pid=${encodeURIComponent(data.pid)}&token=${encodeURIComponent(data.token)}`);
+      router.push(quizUrl(email.toLowerCase()));
     } catch {
       setError("Network error. Please try again.");
     } finally {
@@ -81,10 +82,39 @@ export default function RegisterForm() {
         </label>
         <input
           id="phone"
-          type="tel"
+          type="text"
+          inputMode="numeric"
+          autoComplete="tel"
+          maxLength={12}
+          pattern="[0-9]*"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="+1 555 010 2030"
+          onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 12))}
+          onBeforeInput={(e) => {
+            const data = (e as unknown as InputEvent).data;
+            if (data && /\D/.test(data)) e.preventDefault();
+          }}
+          onKeyDown={(e) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            const allowed = [
+              "Backspace",
+              "Delete",
+              "Tab",
+              "Escape",
+              "Enter",
+              "ArrowLeft",
+              "ArrowRight",
+              "Home",
+              "End",
+            ];
+            if (allowed.includes(e.key)) return;
+            if (!/^\d$/.test(e.key)) e.preventDefault();
+          }}
+          onPaste={(e) => {
+            e.preventDefault();
+            const text = e.clipboardData.getData("text").replace(/\D/g, "");
+            setPhone((phone + text).replace(/\D/g, "").slice(0, 12));
+          }}
+          placeholder="10 to 12 digits"
           className={inputClass}
         />
       </div>

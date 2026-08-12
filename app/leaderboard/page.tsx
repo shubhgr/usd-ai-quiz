@@ -1,136 +1,168 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { COMPETITION_NAME } from "@/lib/config";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import LeaderboardView from "@/components/LeaderboardView";
+import { normalizeEmail } from "@/lib/quizUrls";
+import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
+import { loadSession } from "@/lib/clientSession";
+import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
+import "./leaderboard.css";
 
-interface LeaderboardRow {
-  name: string;
-  totalScore: number;
-  completionTimeSeconds: number;
-  completedAt: string;
+interface LeaderboardResponse {
+  topEntries: LeaderboardRow[];
+  me?: MeInfo | null;
+  error?: string;
 }
 
-const POLL_MS = 10_000;
+const POLL_MS = 30_000;
+
+function LeaderboardShell({
+  loading = true,
+  rows = [],
+  me = null,
+  myPid = "",
+  pendingName = "",
+}: {
+  loading?: boolean;
+  rows?: LeaderboardRow[];
+  me?: MeInfo | null;
+  myPid?: string;
+  pendingName?: string;
+}) {
+  return (
+    <main className="lb-page relative flex w-full flex-1 flex-col">
+      <LeaderboardView
+        rows={rows}
+        me={me}
+        myPid={myPid}
+        pendingName={pendingName}
+        loading={loading}
+      />
+    </main>
+  );
+}
 
 export default function LeaderboardPage() {
+  return (
+    <Suspense fallback={<LeaderboardShell loading />}>
+      <Leaderboard />
+    </Suspense>
+  );
+}
+
+function Leaderboard() {
+  const searchParams = useSearchParams();
+  const email = normalizeEmail(searchParams.get("email") ?? "");
+
+  const [pid, setPid] = useState("");
+  const [token, setToken] = useState("");
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [me, setMe] = useState<MeInfo | null>(null);
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [pendingName, setPendingName] = useState("");
+  const rowsRef = useRef<LeaderboardRow[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch("/api/leaderboard?limit=20");
-        const body = (await res.json()) as LeaderboardRow[] | { error?: string };
-        if (!res.ok) {
-          throw new Error("error" in body ? (body.error ?? "Failed to load") : "Failed to load");
-        }
-        if (!cancelled) setRows(body as LeaderboardRow[]);
-      } catch {
-        if (!cancelled) setError("Couldn't load the leaderboard.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    rowsRef.current = rows;
+  }, [rows]);
+
+  useEffect(() => {
+    if (!email) return;
+    const session = loadSession();
+    if (
+      session &&
+      normalizeEmail(session.email) === email &&
+      session.completed &&
+      (session.score === null || !session.submitted)
+    ) {
+      setPendingName(session.name);
     }
-    load();
-    const interval = setInterval(load, POLL_MS);
+  }, [email]);
+
+  useEffect(() => {
+    if (!email) return;
+    let cancelled = false;
+    (async () => {
+      const creds = await resolveCredentialsByEmail(email);
+      if (cancelled || !creds) return;
+      setPid(creds.pid);
+      setToken(creds.token);
+      persistResolvedCredentials(creds);
+    })();
     return () => {
       cancelled = true;
-      clearInterval(interval);
     };
-  }, []);
+  }, [email]);
 
-  const formatDuration = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return m === 0 ? `${s}s` : `${m}m ${s}s`;
-  };
+  const loadingRef = useRef(false);
 
-  const rankLabel = (i: number) =>
-    i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
+  const loadLeaderboard = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const url =
+        pid && token
+          ? `/api/leaderboard?limit=100&pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
+          : "/api/standings?limit=100";
+      const res = await fetch(url);
+      const body = (await res.json()) as LeaderboardResponse;
+      if (!res.ok || body.error) {
+        if (res.status === 502 && rowsRef.current.length > 0) return;
+        throw new Error(body.error ?? "Failed to load");
+      }
+      setRows(body.topEntries ?? []);
+      setMe(body.me ?? null);
+      if (body.me) setPendingName("");
+      setError("");
+      setReady(true);
+    } catch (err) {
+      if (rowsRef.current.length > 0) return;
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't load the leaderboard. Please try again."
+      );
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [pid, token]);
+
+  useEffect(() => {
+    void loadLeaderboard();
+    const interval = setInterval(loadLeaderboard, pendingName ? 15_000 : POLL_MS);
+    return () => clearInterval(interval);
+  }, [loadLeaderboard, pendingName]);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-12">
-      <header className="mb-8 text-center">
-        <h1 className="text-3xl font-bold tracking-tight">Leaderboard</h1>
-        <p className="mt-2 text-neutral-600 dark:text-neutral-400">
-          {COMPETITION_NAME} — top scores. Ties are broken by faster time.
-        </p>
-      </header>
-
-      {loading && (
-        <p className="text-center text-neutral-500">Loading leaderboard…</p>
+    <main className="lb-page relative flex w-full flex-1 flex-col">
+      {error && !ready && (
+        <div className="relative z-10 mx-auto mt-6 max-w-xl px-5">
+          <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-4 text-center">
+            <p className="text-sm text-red-300">{error}</p>
+            <button
+              type="button"
+              onClick={() => void loadLeaderboard()}
+              disabled={loading}
+              className="cta-button-gradient mt-3 rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {loading ? "Loading…" : "Try again"}
+            </button>
+          </div>
+        </div>
       )}
 
-      {error && (
-        <p className="rounded-lg bg-red-50 px-3 py-2 text-center text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </p>
-      )}
-
-      {!loading && !error && (
-        <>
-          {rows.length === 0 ? (
-            <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
-              No scores yet. Be the first to finish!
-            </div>
-          ) : (
-            <ol className="space-y-2">
-              {rows.map((row, i) => (
-                <li
-                  key={`${row.name}-${row.completedAt}`}
-                  className="flex items-center gap-4 rounded-xl border border-neutral-200 bg-white px-4 py-3 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
-                >
-                  <span className="w-12 shrink-0 text-center">
-                    <span
-                      className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                        i === 0
-                          ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                          : i === 1
-                            ? "bg-neutral-200 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
-                            : i === 2
-                              ? "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300"
-                              : "bg-transparent text-neutral-500 dark:text-neutral-400"
-                      }`}
-                    >
-                      {rankLabel(i)}
-                    </span>
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{row.name}</p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      Finished {new Date(row.completedAt).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                      {row.totalScore}
-                      <span className="text-xs font-medium text-neutral-400">
-                        {" "}
-                        / 15
-                      </span>
-                    </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      {formatDuration(row.completionTimeSeconds)}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </>
-      )}
-
-      <div className="mt-8 text-center">
-        <Link
-          href="/register"
-          className="inline-block rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
-        >
-          Take the challenge
-        </Link>
-      </div>
+      <LeaderboardView
+        rows={rows}
+        me={me}
+        myPid={pid}
+        pendingName={pendingName}
+        loading={loading && !ready}
+      />
     </main>
   );
 }

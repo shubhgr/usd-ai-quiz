@@ -1,14 +1,49 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { prisma } from "@/lib/db";
 import { verifyToken } from "@/lib/token";
 import { RESTART_AFTER_DAYS } from "@/lib/config";
-import { findQuestion } from "@/lib/questions";
+import { questions } from "@/lib/questions";
+import { isCorrectAnswer } from "@/lib/answerKey";
+import {
+  gasGetProgress,
+  gasSaveAnswers,
+  gasClearResponses,
+  type ProgressInfo,
+} from "@/lib/sheets";
+import { respondSheetsError } from "@/lib/handleSheetsError";
 
 function unauthorized() {
   return NextResponse.json(
     { error: "Invalid or tampered token" },
     { status: 401 }
   );
+}
+
+function notFound() {
+  return NextResponse.json({ error: "Participant not found" }, { status: 404 });
+}
+
+async function fetchProgress(pid: string): Promise<{
+  progress: ProgressInfo;
+  restarted: boolean;
+}> {
+  let progress = await gasGetProgress(pid);
+  let restarted = false;
+
+  const last = progress.lastActivityAt
+    ? new Date(progress.lastActivityAt).getTime()
+    : Date.now();
+  const daysSinceLastActivity = Math.floor((Date.now() - last) / 86_400_000);
+
+  if (
+    progress.status === "in_progress" &&
+    daysSinceLastActivity > RESTART_AFTER_DAYS
+  ) {
+    await gasClearResponses(pid);
+    progress = await gasGetProgress(pid);
+    restarted = true;
+  }
+
+  return { progress, restarted };
 }
 
 export async function GET(request: NextRequest) {
@@ -18,67 +53,53 @@ export async function GET(request: NextRequest) {
   const verifiedPid = verifyToken(token);
   if (!verifiedPid || verifiedPid !== pid) return unauthorized();
 
-  const registration = await prisma.registration.findUnique({
-    where: { pid },
-    include: { score: true },
-  });
-  if (!registration) {
-    return NextResponse.json({ error: "Participant not found" }, { status: 404 });
-  }
+  try {
+    const { progress, restarted } = await fetchProgress(pid);
 
-  const daysSinceLastActivity = Math.floor(
-    (Date.now() - registration.lastActivityAt.getTime()) / 86_400_000
-  );
+    const last = progress.lastActivityAt
+      ? new Date(progress.lastActivityAt).getTime()
+      : Date.now();
+    const daysSinceLastActivity = Math.floor((Date.now() - last) / 86_400_000);
 
-  // §4.4 resume branch: expired => allow restart (configurable).
-  // Must run BEFORE reading responses so a cleared quiz reports no answers.
-  let status = registration.status;
-  let restarted = false;
-  if (
-    registration.status === "in_progress" &&
-    daysSinceLastActivity > RESTART_AFTER_DAYS
-  ) {
-    await prisma.response.deleteMany({ where: { pid } });
-    await prisma.registration.update({
-      where: { pid },
-      data: { status: "not_started", lastActivityAt: new Date() },
+    const answers: Record<string, { answer: string; isCorrect?: boolean }> = {};
+    const showCorrectness = progress.status === "completed";
+    for (const r of progress.responses) {
+      answers[r.questionId] = {
+        answer: r.answer,
+        ...(showCorrectness
+          ? { isCorrect: isCorrectAnswer(r.questionId, r.answer) }
+          : {}),
+      };
+    }
+    const answeredQuestionIds = progress.responses.map((r) => r.questionId);
+
+    return NextResponse.json({
+      pid,
+      name: progress.name,
+      email: progress.email,
+      status: progress.status,
+      lastActivityAt: progress.lastActivityAt,
+      daysSinceLastActivity,
+      restarted,
+      answeredQuestionIds,
+      answers,
+      score: progress.score,
     });
-    status = "not_started";
-    restarted = true;
+  } catch (err) {
+    const response = respondSheetsError(err);
+    if (response) return response;
+    console.error("[progress GET]", err);
+    return NextResponse.json(
+      { error: "Could not load progress. Please try again." },
+      { status: 502 }
+    );
   }
-
-  const responses = await prisma.response.findMany({ where: { pid } });
-  const answers: Record<string, { answer: string; isCorrect: boolean }> = {};
-  for (const r of responses) {
-    answers[r.questionId] = { answer: r.answer, isCorrect: r.isCorrect };
-  }
-  const answeredQuestionIds = responses.map((r) => r.questionId);
-
-  return NextResponse.json({
-    pid,
-    name: registration.name,
-    email: registration.email,
-    status,
-    lastActivityAt: registration.lastActivityAt.toISOString(),
-    daysSinceLastActivity,
-    restarted,
-    answeredQuestionIds,
-    answers,
-    score: registration.score
-      ? {
-          totalScore: registration.score.totalScore,
-          completionTimeSeconds: registration.score.completionTimeSeconds,
-          completedAt: registration.score.completedAt.toISOString(),
-        }
-      : null,
-  });
 }
 
 interface ProgressBody {
   pid?: string;
   token?: string;
-  questionId?: string;
-  answer?: string;
+  answers?: string;
 }
 
 export async function POST(request: Request) {
@@ -89,47 +110,42 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { pid = "", token = "", questionId = "", answer = "" } = body;
+  const { pid = "", token = "", answers = "" } = body;
   const verifiedPid = verifyToken(token);
   if (!verifiedPid || verifiedPid !== pid) return unauthorized();
 
-  const registration = await prisma.registration.findUnique({ where: { pid } });
-  if (!registration) {
-    return NextResponse.json({ error: "Participant not found" }, { status: 404 });
+  const normalized = answers.trim().toLowerCase();
+  if (!normalized) {
+    return NextResponse.json({ error: "answers is required" }, { status: 400 });
   }
-  if (registration.status === "completed") {
+  if (normalized.length > questions.length) {
+    return NextResponse.json({ error: "answers string is too long" }, { status: 400 });
+  }
+  if (!/^[abcd]+$/.test(normalized)) {
+    return NextResponse.json({ error: "Invalid answer string" }, { status: 400 });
+  }
+
+  try {
+    const result = await gasSaveAnswers({ pid, answers: normalized });
+
+    if (result.completed) {
+      return NextResponse.json({
+        ok: true,
+        completed: true,
+        totalScore: result.totalScore,
+        completionTimeSeconds: result.completionTimeSeconds,
+        completedAt: result.completedAt,
+      });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const response = respondSheetsError(err);
+    if (response) return response;
+    console.error("[progress POST]", err);
     return NextResponse.json(
-      { error: "Quiz already completed" },
-      { status: 409 }
+      { error: "Could not save progress. Please try again." },
+      { status: 502 }
     );
   }
-
-  const question = findQuestion(questionId);
-  if (!question) {
-    return NextResponse.json(
-      { error: "Unknown questionId" },
-      { status: 400 }
-    );
-  }
-  const keys = Object.keys(question.options);
-  if (!keys.includes(answer)) {
-    return NextResponse.json({ error: "Invalid answer" }, { status: 400 });
-  }
-
-  const isCorrect = question.correct === answer;
-
-  // Upsert on (pid, questionId): changing an answer overwrites the row,
-  // it never creates a duplicate.
-  await prisma.response.upsert({
-    where: { pid_questionId: { pid, questionId } },
-    create: { pid, questionId, answer, isCorrect },
-    update: { answer, isCorrect, answeredAt: new Date() },
-  });
-
-  await prisma.registration.update({
-    where: { pid },
-    data: { status: "in_progress", lastActivityAt: new Date() },
-  });
-
-  return NextResponse.json({ ok: true, isCorrect });
 }

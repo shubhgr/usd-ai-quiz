@@ -1,12 +1,15 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { signToken } from "@/lib/token";
+import { gasRegister } from "@/lib/sheets";
 
 interface RegisterBody {
+  pid?: string;
   name?: string;
   email?: string;
   phone?: string;
+  workExperience?: string;
+  domain?: string;
 }
 
 export async function POST(request: Request) {
@@ -21,6 +24,9 @@ export async function POST(request: Request) {
   const email =
     typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const phone = typeof body.phone === "string" ? body.phone.trim() : "";
+  const workExperience =
+    typeof body.workExperience === "string" ? body.workExperience.trim() : null;
+  const domain = typeof body.domain === "string" ? body.domain.trim() : null;
 
   if (!name || !email) {
     return NextResponse.json(
@@ -32,56 +38,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
   }
 
-  const existing = await prisma.registration.findUnique({ where: { email } });
-  if (existing) {
-    // Returning participant — do NOT create a duplicate. The quiz page
-    // branches on `status` (start / resume / redirect to results).
-    return NextResponse.json({
-      pid: existing.pid,
-      token: signToken(existing.pid),
-      status: existing.status,
-      lastActivityAt: existing.lastActivityAt.toISOString(),
-      existing: true,
-    });
-  }
+  // Accept a client-supplied pid (issued instantly by /api/begin) so the
+  // registration can be written in the background without blocking the UI.
+  // Fall back to generating one here for safety.
+  const pid =
+    typeof body.pid === "string" && /^[0-9a-f-]{36}$/i.test(body.pid)
+      ? body.pid
+      : crypto.randomUUID();
 
-  const pid = crypto.randomUUID();
-  const now = new Date();
+  // The Apps Script backend owns the unique-email check: if the email already
+  // exists it returns the existing row (existing:true) instead of a duplicate.
+  const result = await gasRegister({ pid, name, email, phone, workExperience: workExperience ?? "", domain: domain ?? "" });
 
-  try {
-    const created = await prisma.registration.create({
-      data: {
-        pid,
-        name,
-        email,
-        phone,
-        status: "not_started",
-        registeredAt: now,
-        lastActivityAt: now,
-      },
-    });
-    return NextResponse.json({
-      pid: created.pid,
-      token: signToken(created.pid),
-      status: created.status,
-      lastActivityAt: created.lastActivityAt.toISOString(),
-      existing: false,
-    });
-  } catch (err) {
-    // Race: two identical registrations landed at once; unique(email) fired.
-    // Re-read and return the existing row.
-    if (err instanceof Error && "code" in err && (err as { code?: string }).code === "P2002") {
-      const existingRow = await prisma.registration.findUnique({ where: { email } });
-      if (existingRow) {
-        return NextResponse.json({
-          pid: existingRow.pid,
-          token: signToken(existingRow.pid),
-          status: existingRow.status,
-          lastActivityAt: existingRow.lastActivityAt.toISOString(),
-          existing: true,
-        });
-      }
-    }
-    throw err;
-  }
+  return NextResponse.json({
+    pid: result.pid,
+    token: signToken(result.pid),
+    status: result.status,
+    lastActivityAt: result.lastActivityAt,
+    existing: result.existing,
+  });
 }

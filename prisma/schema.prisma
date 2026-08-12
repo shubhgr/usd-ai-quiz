@@ -19,6 +19,8 @@ model Registration {
   name           String
   email          String             @unique
   phone          String
+  workExperience String?
+  domain         String?
   registeredAt   DateTime           @default(now())
   status         RegistrationStatus @default(not_started)
   lastActivityAt DateTime           @default(now())

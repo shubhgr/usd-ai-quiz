@@ -3,12 +3,17 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { questions, questionsByCarousel } from "@/lib/questions";
+import { loadSession, saveSession, clearSession } from "@/lib/clientSession";
+import { scheduleSync, flushPendingOnUnload } from "@/lib/backgroundSync";
+import { questions } from "@/lib/questions";
+import { resultsUrl, normalizeEmail } from "@/lib/quizUrls";
+import {
+  resolveCredentialsByEmail,
+  persistResolvedCredentials,
+} from "@/lib/resolveCredentials";
+import { allAnswersString } from "@/lib/quizScreens";
 
-const carousels = questionsByCarousel();
-const TOTAL_SCREENS = carousels.length;
 const TOTAL_QUESTIONS = questions.length;
-const SWIPE_THRESHOLD = 0.25;
 
 interface ProgressResponse {
   pid: string;
@@ -19,7 +24,7 @@ interface ProgressResponse {
   daysSinceLastActivity: number;
   restarted: boolean;
   answeredQuestionIds: string[];
-  answers: Record<string, { answer: string; isCorrect: boolean }>;
+  answers: Record<string, { answer: string; isCorrect?: boolean }>;
   score: {
     totalScore: number;
     completionTimeSeconds: number;
@@ -27,47 +32,68 @@ interface ProgressResponse {
   } | null;
 }
 
-export default function QuizClient({
-  pid,
-  token,
-}: {
-  pid: string;
-  token: string;
-}) {
+export default function QuizClient({ email }: { email: string }) {
   const router = useRouter();
-  const quizUrl = `/quiz?pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`;
-  const resultsUrl = `/results?pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`;
+  const linkResults = resultsUrl(email);
 
-  const [loading, setLoading] = useState(true);
+  const [pid, setPid] = useState("");
+  const [token, setToken] = useState("");
+  const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [restartNotice, setRestartNotice] = useState(false);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [screen, setScreen] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string>>(() => {
+    const session = loadSession();
+    return session &&
+      normalizeEmail(session.email) === email &&
+      !session.completed
+      ? session.answers
+      : {};
+  });
   const [saveError, setSaveError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
-  const trackRef = useRef<HTMLDivElement | null>(null);
   const submittingRef = useRef(false);
+  const firstUnansweredRef = useRef<HTMLElement | null>(null);
 
-  // Swipe state (pointer drag on the carousel track).
-  const dragRef = useRef<{
-    active: boolean;
-    captured: boolean;
-    startX: number;
-    delta: number;
-    width: number;
-  }>({ active: false, captured: false, startX: 0, delta: 0, width: 0 });
-  const [dragOffset, setDragOffset] = useState(0);
-  const [dragging, setDragging] = useState(false);
-
-  const DRAG_START_THRESHOLD = 8;
+  useEffect(() => {
+    const flush = () => flushPendingOnUnload();
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const creds = await resolveCredentialsByEmail(email);
+      if (cancelled) return;
+      if (!creds) {
+        setError("No registration found for this email.");
+        return;
+      }
+
+      setPid(creds.pid);
+      setToken(creds.token);
+      persistResolvedCredentials(creds);
+
+      const local = loadSession();
+      if (local && normalizeEmail(local.email) === email) {
+        if (local.completed) {
+          router.replace(linkResults);
+          return;
+        }
+        setReady(true);
+        scheduleSync();
+        return;
+      }
+
+      if (local && normalizeEmail(local.email) !== email) {
+        clearSession();
+      }
+
       try {
         const res = await fetch(
-          `/api/progress?pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
+          `/api/progress?pid=${encodeURIComponent(creds.pid)}&token=${encodeURIComponent(creds.token)}`
         );
         const data = (await res.json()) as ProgressResponse & { error?: string };
         if (!res.ok) {
@@ -76,8 +102,8 @@ export default function QuizClient({
         }
         if (cancelled) return;
 
-        if (data.status === "completed") {
-          router.replace(resultsUrl);
+        if (data.status === "completed" && data.score) {
+          router.replace(linkResults);
           return;
         }
 
@@ -87,164 +113,165 @@ export default function QuizClient({
         for (const qid of Object.keys(data.answers)) {
           savedAnswers[qid] = data.answers[qid].answer;
         }
+        saveSession({
+          pid: creds.pid,
+          token: creds.token,
+          name: data.name,
+          email: data.email,
+          phone: "",
+          workExperience: "",
+          domain: "",
+          registeredAt: data.lastActivityAt
+            ? new Date(data.lastActivityAt).getTime()
+            : Date.now(),
+          registered: true,
+          answers: savedAnswers,
+          syncedAnswerString: allAnswersString(savedAnswers),
+          completed: data.status === "completed",
+          submitted: data.status === "completed",
+          score: data.score?.totalScore ?? null,
+          completionTimeSeconds: data.score?.completionTimeSeconds ?? null,
+          completedAt: data.score?.completedAt ?? null,
+        });
         setAnswers(savedAnswers);
-
-        // Resume at the first screen containing an unanswered question.
-        // If everything is answered but not yet submitted, land on the last screen.
-        const unanswered = questions.find((q) => !(q.id in savedAnswers));
-        if (unanswered) {
-          setScreen(unanswered.carousel - 1);
-        } else if (Object.keys(savedAnswers).length >= TOTAL_QUESTIONS) {
-          setScreen(TOTAL_SCREENS - 1);
-        }
+        setReady(true);
+        scheduleSync();
       } catch {
         if (!cancelled) setError("Network error. Please refresh to retry.");
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [pid, token, router, resultsUrl]);
+  }, [email, router, linkResults]);
 
-  const isScreenComplete = (screenIdx: number) =>
-    carousels[screenIdx].every((q) => answers[q.id] !== undefined);
+  useEffect(() => {
+    if (!ready || !firstUnansweredRef.current) return;
+    firstUnansweredRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }, [ready]);
 
-  const submit = useCallback(async () => {
+  const submit = useCallback(() => {
     if (submittingRef.current) return;
     submittingRef.current = true;
-    setSubmitting(true);
     setSaveError("");
-    try {
-      const res = await fetch("/api/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid, token }),
+
+    const session = loadSession();
+    const registeredAt = session?.registeredAt ?? Date.now();
+    const completedAt = new Date();
+    const completionTimeSeconds = Math.max(
+      0,
+      Math.round((completedAt.getTime() - registeredAt) / 1000)
+    );
+    const apiPid = session?.pid ?? pid;
+    const apiToken = session?.token ?? token;
+    const answerStr = allAnswersString(answers);
+
+    saveSession({
+      pid: apiPid,
+      token: apiToken,
+      name: session?.name ?? "",
+      email: session?.email ?? email,
+      phone: session?.phone ?? "",
+      workExperience: session?.workExperience ?? "",
+      domain: session?.domain ?? "",
+      registeredAt,
+      registered: session?.registered ?? false,
+      answers,
+      syncedAnswerString: session?.syncedAnswerString ?? "",
+      completed: true,
+      submitted: false,
+      score: null,
+      completionTimeSeconds,
+      completedAt: completedAt.toISOString(),
+    });
+
+    void (async () => {
+      const scoreRequest = (async () => {
+        const res = await fetch("/api/score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pid: apiPid,
+            token: apiToken,
+            answers: answerStr,
+          }),
+        });
+        if (!res.ok) return;
+        const body = (await res.json()) as { totalScore?: number };
+        const totalScore = Number(body.totalScore);
+        const cur = loadSession();
+        if (cur && !Number.isNaN(totalScore)) {
+          saveSession({ ...cur, score: totalScore });
+        }
+      })().catch(() => {
+        // Results page will score if this fails.
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setSaveError(data.error ?? "Could not submit your quiz.");
-        submittingRef.current = false;
-        setSubmitting(false);
-        return;
-      }
-      router.replace(resultsUrl);
-    } catch {
-      setSaveError("Network error while submitting. Please try again.");
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  }, [pid, token, router, resultsUrl]);
+
+      await Promise.race([
+        scoreRequest,
+        new Promise((resolve) => setTimeout(resolve, 800)),
+      ]);
+      router.replace(linkResults);
+      scheduleSync();
+    })();
+  }, [answers, pid, token, email, router, linkResults]);
 
   const answer = useCallback(
-    async (questionId: string, option: string) => {
+    (questionId: string, option: string) => {
       const prev = answers[questionId];
       if (prev === option) return;
 
       setAnswers((a) => ({ ...a, [questionId]: option }));
       setSaveError("");
 
-      try {
-        const res = await fetch("/api/progress", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pid, token, questionId, answer: option }),
+      const session = loadSession();
+      const nextAnswers = { ...(session?.answers ?? answers), [questionId]: option };
+
+      if (session) {
+        saveSession({
+          ...session,
+          answers: nextAnswers,
+          registeredAt: session.registeredAt ?? Date.now(),
+          registered: session.registered ?? false,
         });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setAnswers((a) => {
-            const next = { ...a };
-            if (prev === undefined) delete next[questionId];
-            else next[questionId] = prev;
-            return next;
-          });
-          setSaveError(data.error ?? "Could not save your answer. Please retry.");
-        }
-      } catch {
-        setAnswers((a) => {
-          const next = { ...a };
-          if (prev === undefined) delete next[questionId];
-          else next[questionId] = prev;
-          return next;
+      } else {
+        saveSession({
+          pid,
+          token,
+          name: "",
+          email,
+          phone: "",
+          workExperience: "",
+          domain: "",
+          registeredAt: Date.now(),
+          registered: false,
+          answers: nextAnswers,
+          syncedAnswerString: "",
+          completed: false,
+          submitted: false,
+          score: null,
+          completionTimeSeconds: null,
+          completedAt: null,
         });
-        setSaveError("Network error while saving. Please retry.");
       }
+
+      scheduleSync();
     },
-    [answers, pid, token]
+    [answers, email, pid, token]
   );
-
-  const goToScreen = (target: number) => {
-    const clamped = Math.max(0, Math.min(TOTAL_SCREENS - 1, target));
-    setScreen(clamped);
-  };
-
-  // --- Swipe (pointer drag) handlers ---
-  const onPointerDown = (e: React.PointerEvent) => {
-    const el = trackRef.current;
-    if (!el) return;
-    dragRef.current = {
-      active: true,
-      captured: false,
-      startX: e.clientX,
-      delta: 0,
-      width: el.clientWidth,
-    };
-  };
-
-  const onPointerMove = (e: React.PointerEvent) => {
-    const drag = dragRef.current;
-    if (!drag.active) return;
-    const delta = e.clientX - drag.startX;
-
-    // Small dead-zone: a stationary press should remain a click on the
-    // option buttons, so we only start the swipe once the pointer moves.
-    if (!drag.captured) {
-      if (Math.abs(delta) < DRAG_START_THRESHOLD) return;
-      e.currentTarget.setPointerCapture(e.pointerId);
-      drag.captured = true;
-      setDragging(true);
-    }
-
-    const canGoBack = screen > 0;
-    const canGoForward = screen < TOTAL_SCREENS - 1;
-    const clamped = Math.max(
-      canGoBack ? -drag.width : 0,
-      Math.min(canGoForward ? drag.width : 0, delta)
-    );
-    drag.delta = clamped;
-    setDragOffset(clamped);
-  };
-
-  const endDrag = () => {
-    const drag = dragRef.current;
-    if (!drag.active) return;
-    drag.active = false;
-    if (drag.captured) {
-      const ratio = drag.delta / (drag.width || 1);
-      if (ratio < -SWIPE_THRESHOLD) goToScreen(screen + 1);
-      else if (ratio > SWIPE_THRESHOLD) goToScreen(screen - 1);
-    }
-    setDragging(false);
-    setDragOffset(0);
-    dragRef.current = {
-      active: false,
-      captured: false,
-      startX: 0,
-      delta: 0,
-      width: 0,
-    };
-  };
 
   if (error) {
     return (
       <main className="flex flex-1 items-center justify-center px-6 py-16">
         <div className="max-w-md text-center">
           <h1 className="text-2xl font-bold">This link isn&apos;t valid</h1>
-          <p className="mt-3 text-neutral-600 dark:text-neutral-400">{error}</p>
+          <p className="mt-3 text-slate-400">{error}</p>
           <Link
-            href="/register"
-            className="mt-6 inline-block rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+            href="/"
+            className="cta-button-gradient mt-6 inline-block rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
           >
             Go to registration
           </Link>
@@ -253,162 +280,130 @@ export default function QuizClient({
     );
   }
 
-  if (loading) {
+  if (!ready) {
     return (
-      <main className="flex flex-1 items-center justify-center px-6 py-16 text-neutral-500">
+      <main className="flex flex-1 items-center justify-center px-6 py-16 text-slate-400">
         Loading your quiz…
       </main>
     );
   }
 
-  const screenComplete = isScreenComplete(screen);
-  const allComplete = Object.keys(answers).length >= TOTAL_QUESTIONS;
-  const isLastScreen = screen === TOTAL_SCREENS - 1;
+  const answeredCount = questions.filter((q) => answers[q.id] !== undefined).length;
+  const allComplete = answeredCount === TOTAL_QUESTIONS;
+  const progressPct = Math.round((answeredCount / TOTAL_QUESTIONS) * 100);
+  const firstUnansweredId = questions.find((q) => !(q.id in answers))?.id;
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 py-8 sm:px-6">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/" className="text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-400">
-          ← Home
-        </Link>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
-            Screen {screen + 1} of {TOTAL_SCREENS}
-          </span>
-          <div className="flex gap-1.5" aria-label="Progress">
-            {carousels.map((group, i) => {
-              const done = group.every((q) => answers[q.id] !== undefined);
-              return (
-                <span
-                  key={i}
-                  title={`Screen ${i + 1}${done ? " (complete)" : ""}`}
-                  className={`h-2.5 w-2.5 rounded-full transition ${
-                    i === screen
-                      ? "bg-indigo-600 scale-110"
-                      : done
-                        ? "bg-emerald-500"
-                        : "bg-neutral-300 dark:bg-neutral-700"
-                  }`}
-                />
-              );
-            })}
+    <div className="flex min-h-dvh flex-col">
+      {/* Sticky header */}
+      <header className="sticky top-0 z-20 border-b border-white/10 bg-[#001426]/95 px-4 py-4 backdrop-blur-md sm:px-6">
+        <div className="mx-auto w-full max-w-6xl space-y-2">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm font-medium text-slate-300">
+              Questions answered
+            </p>
+            <p className="text-sm tabular-nums text-white">
+              <span className="font-bold text-[#75BEE9]">{answeredCount}</span>
+              <span className="text-slate-500"> / {TOTAL_QUESTIONS}</span>
+            </p>
+          </div>
+          <div className="quiz-progress-track" aria-hidden="true">
+            <div
+              className="quiz-progress-fill"
+              style={{ width: `${progressPct}%` }}
+            />
           </div>
         </div>
       </header>
 
-      {restartNotice && (
-        <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-          More than 30 days passed since your last activity, so your previous
-          answers were cleared and you&apos;ve been restarted from question 1.
-        </p>
-      )}
+      {/* Scrollable questions */}
+      <main className="relative mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
+        <div className="pointer-events-none absolute -top-24 right-0 h-72 w-72 rounded-full bg-[#0074C8]/15 blur-[110px]" />
 
-      <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <div
-          ref={trackRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-          className={`flex touch-pan-y select-none ${
-            dragging ? "" : "transition-transform duration-500 ease-in-out"
-          }`}
-          style={{
-            transform: `translateX(calc(${-screen * 100}% + ${dragOffset}px))`,
-          }}
-        >
-          {carousels.map((group, slideIdx) => (
-            <div
-              key={slideIdx}
-              className="flex w-full shrink-0 flex-col gap-5 px-6 py-8 sm:px-10"
-            >
-              {group.map((q) => {
-                const selected = answers[q.id];
-                const globalIndex = questions.indexOf(q);
-                return (
-                  <div key={q.id} className="flex flex-col gap-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                      Question {globalIndex + 1} of {TOTAL_QUESTIONS}
-                    </p>
-                    <h2 className="text-lg font-semibold leading-snug">{q.text}</h2>
-                    <div className="grid gap-2">
+        {restartNotice && (
+          <p className="relative mb-4 rounded-lg border border-amber-300/20 bg-amber-950/50 px-3 py-2 text-sm text-amber-200">
+            More than 30 days passed since your last activity, so your previous
+            answers were cleared and you&apos;ve been restarted from question 1.
+          </p>
+        )}
+
+        <div className="glass-panel relative rounded-2xl border border-white/10 px-5 py-7 sm:px-8 sm:py-9">
+          {questions.map((q, globalIndex) => {
+            const selected = answers[q.id];
+            const isFirstUnanswered = q.id === firstUnansweredId;
+            return (
+              <article
+                key={q.id}
+                ref={isFirstUnanswered ? firstUnansweredRef : undefined}
+                className="quiz-question-block"
+              >
+                <div className="flex items-start gap-3.5 sm:gap-4">
+                  <span className="quiz-q-badge" aria-hidden="true">
+                    {globalIndex + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="quiz-q-text">{q.text}</h2>
+                    <fieldset className="mt-5 space-y-2.5 border-0 p-0">
+                      <legend className="sr-only">
+                        Question {globalIndex + 1} options
+                      </legend>
                       {Object.entries(q.options).map(([key, label]) => {
                         const isSelected = selected === key;
                         return (
                           <button
                             key={key}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
                             onClick={() => answer(q.id, key)}
-                            className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left text-sm transition ${
-                              isSelected
-                                ? "border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600 dark:bg-indigo-950"
-                                : "border-neutral-200 hover:border-indigo-300 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                            className={`quiz-option ${
+                              isSelected ? "quiz-option-selected" : ""
                             }`}
                           >
-                            <span
-                              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-bold ${
-                                isSelected
-                                  ? "border-indigo-600 bg-indigo-600 text-white"
-                                  : "border-neutral-300 text-neutral-500 dark:border-neutral-600 dark:text-neutral-400"
-                              }`}
-                            >
+                            <span className="quiz-option-letter">
                               {key.toUpperCase()}
                             </span>
-                            <span>{label}</span>
+                            <span className="min-w-0 flex-1 pt-px">
+                              {label}
+                            </span>
                           </button>
                         );
                       })}
-                    </div>
+                    </fieldset>
                   </div>
-                );
-              })}
-            </div>
-          ))}
+                </div>
+              </article>
+            );
+          })}
         </div>
-      </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <button
-          onClick={() => goToScreen(screen - 1)}
-          disabled={screen === 0}
-          className="rounded-lg border border-neutral-300 px-5 py-2 text-sm font-medium hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:hover:bg-neutral-800"
-        >
-          ← Back
-        </button>
-        <div className="flex items-center gap-3">
-          {!isLastScreen ? (
-            <button
-              onClick={() => goToScreen(screen + 1)}
-              disabled={!screenComplete}
-              className="rounded-lg bg-indigo-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Next →
-            </button>
-          ) : (
-            <button
-              onClick={submit}
-              disabled={!allComplete || submitting}
-              className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitting ? "Submitting…" : "Finish quiz"}
-            </button>
-          )}
+        {saveError && (
+          <p className="relative mt-4 rounded-lg border border-red-500/30 bg-red-950/60 px-3 py-2 text-sm text-red-300">
+            {saveError}
+          </p>
+        )}
+
+        {/* Spacer so content isn't hidden behind sticky footer */}
+        <div className="h-24" aria-hidden="true" />
+      </main>
+
+      {/* Sticky footer with single submit */}
+      <footer className="sticky bottom-0 z-20 border-t border-white/10 bg-[#001426]/95 px-4 py-4 backdrop-blur-md sm:px-6">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
+          <p className="text-sm tabular-nums text-slate-400">
+            <span className="font-medium text-white">{answeredCount}</span>
+            <span> / {TOTAL_QUESTIONS} answered</span>
+          </p>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!allComplete}
+            className="cta-button-gradient shrink-0 rounded-lg px-8 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Submit
+          </button>
         </div>
-      </div>
-
-      {saveError && (
-        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {saveError}
-        </p>
-      )}
-
-      <p className="mt-4 text-center text-xs text-neutral-500 dark:text-neutral-400">
-        Your answers are saved automatically as you select them. You can close
-        this tab and resume later from this same link. (
-        <Link href={quizUrl} className="text-indigo-600 hover:underline dark:text-indigo-400">
-          copy your quiz link
-        </Link>
-        )
-      </p>
-    </main>
+      </footer>
+    </div>
   );
 }

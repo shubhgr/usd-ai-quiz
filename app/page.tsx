@@ -1,68 +1,346 @@
+"use client";
+
+import { useState, FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { COMPETITION_NAME } from "@/lib/config";
-import { TOTAL_CAROUSELS, questions } from "@/lib/questions";
+import { saveSession, clearSession } from "@/lib/clientSession";
+import { scheduleSync } from "@/lib/backgroundSync";
+import { quizUrl, resultsUrl, STANDINGS_PATH } from "@/lib/quizUrls";
+import { showToast } from "@/lib/toast";
 
-export const metadata = {
-  title: `${COMPETITION_NAME} — Think. Answer. Win.`,
-};
+const REGISTER_WAIT_MS = 500;
+const PHONE_MIN_DIGITS = 10;
+const PHONE_MAX_DIGITS = 12;
 
-export default function Home() {
+function digitsOnly(value: string, max = PHONE_MAX_DIGITS) {
+  return value.replace(/\D/g, "").slice(0, max);
+}
+
+export default function LandingPage() {
+  const router = useRouter();
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [workExperience, setWorkExperience] = useState("");
+  const [domain, setDomain] = useState("");
+
+  const [showResume, setShowResume] = useState(false);
+  const [resumeEmail, setResumeEmail] = useState("");
+  const [resumeError, setResumeError] = useState("");
+  const [resumeSubmitting, setResumeSubmitting] = useState(false);
+
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleRegister(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    const fullName = `${firstName} ${lastName}`.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    const phoneDigits = digitsOnly(phone);
+    if (
+      phoneDigits.length < PHONE_MIN_DIGITS ||
+      phoneDigits.length > PHONE_MAX_DIGITS
+    ) {
+      const message = "Phone number must be 10 to 12 digits.";
+      setError(message);
+      showToast(message);
+      return;
+    }
+
+    setSubmitting(true);
+    const startedAt = Date.now();
+
+    try {
+      const res = await fetch("/api/begin", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        const message = data.error ?? "Registration failed. Please try again.";
+        setError(message);
+        showToast(message);
+        return;
+      }
+
+      saveSession({
+        pid: String(data.pid),
+        token: String(data.token),
+        name: fullName,
+        email: normalizedEmail,
+        phone: phoneDigits,
+        workExperience,
+        domain,
+        registeredAt: Date.now(),
+        registered: false,
+        answers: {},
+        syncedAnswerString: "",
+        completed: false,
+        submitted: false,
+        score: null,
+        completionTimeSeconds: null,
+        completedAt: null,
+      });
+
+      // Sheet write starts immediately; the quiz does not wait for it.
+      scheduleSync();
+
+      const remaining = REGISTER_WAIT_MS - (Date.now() - startedAt);
+      if (remaining > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remaining));
+      }
+
+      router.push(quizUrl(normalizedEmail));
+    } catch {
+      const message = "Network error. Please check your connection and try again.";
+      setError(message);
+      showToast(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleResume(e: FormEvent) {
+    e.preventDefault();
+    setResumeError("");
+    setResumeSubmitting(true);
+
+    try {
+      const res = await fetch("/api/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resumeEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const message =
+          data.error ?? "Couldn't find a registration for that email.";
+        setResumeError(message);
+        showToast(message);
+        return;
+      }
+      clearSession();
+      const normalizedEmail = resumeEmail.trim().toLowerCase();
+      const page = data.status === "completed" ? "results" : "quiz";
+      router.push(
+        page === "results" ? resultsUrl(normalizedEmail) : quizUrl(normalizedEmail)
+      );
+    } catch {
+      const message = "Network error. Please check your connection and try again.";
+      setResumeError(message);
+      showToast(message);
+    } finally {
+      setResumeSubmitting(false);
+    }
+  }
+
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center px-6 py-20 text-center">
-      <span className="rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
-        15 questions · {TOTAL_CAROUSELS} rounds · ~5 minutes
-      </span>
+    <div className="binary-bg min-h-dvh">
+      <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col items-center justify-center px-5 py-12 sm:px-8">
+        {/* Top text — centered above form */}
+        <header className="mb-8 w-full text-center">
+          <h1 className="register-headline">
+            India&apos;s National AI Competition to identify the next-gen AI
+            talent
+          </h1>
+        </header>
 
-      <h1 className="mt-6 text-4xl font-extrabold tracking-tight sm:text-5xl">
-        {COMPETITION_NAME}
-      </h1>
-      <p className="mt-4 max-w-xl text-lg text-neutral-600 dark:text-neutral-400">
-        Answer {questions.length} quick multiple-choice questions across general
-        knowledge, tech, maths, science and more. Your progress saves
-        automatically — you can leave and come back within 30 days.
-      </p>
+        {/* Form only */}
+        <div className="register-form-panel w-full p-6 sm:p-8">
+          {showResume ? (
+            <form onSubmit={handleResume} className="space-y-4">
+              <input
+                id="resumeEmail"
+                type="email"
+                required
+                value={resumeEmail}
+                onChange={(e) => setResumeEmail(e.target.value)}
+                className="register-input"
+                placeholder="Email*"
+              />
 
-      <div className="mt-8 flex flex-wrap justify-center gap-4">
-        <Link
-          href="/register"
-          className="rounded-lg bg-indigo-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
-        >
-          Start now
-        </Link>
-        <Link
-          href="/leaderboard"
-          className="rounded-lg border border-neutral-300 px-7 py-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-        >
-          View leaderboard
-        </Link>
-      </div>
+              {resumeError && (
+                <p className="rounded-lg border border-red-500/30 bg-red-950/60 px-3 py-2 text-sm text-red-300">
+                  {resumeError}
+                </p>
+              )}
 
-      <div className="mt-16 grid w-full gap-4 text-left sm:grid-cols-3">
-        {[
-          {
-            title: "Register once",
-            body: "Use your email — it becomes your credential. Return to the same link anytime to resume.",
-          },
-          {
-            title: "Answer & autosave",
-            body: "Every answer is saved instantly. No save buttons, no lost progress if you close the tab.",
-          },
-          {
-            title: "Result + leaderboard",
-            body: "Get an instant score and a downloadable PDF, then see how you rank.",
-          },
-        ].map((card) => (
-          <div
-            key={card.title}
-            className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
-          >
-            <h3 className="font-semibold">{card.title}</h3>
-            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-              {card.body}
-            </p>
-          </div>
-        ))}
-      </div>
-    </main>
+              <button
+                type="submit"
+                disabled={resumeSubmitting}
+                className="register-btn-primary"
+              >
+                {resumeSubmitting ? "Loading…" : "Continue"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <input
+                  id="firstName"
+                  type="text"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className="register-input"
+                  placeholder="First Name*"
+                />
+                <input
+                  id="lastName"
+                  type="text"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className="register-input"
+                  placeholder="Last Name*"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="register-input"
+                  placeholder="Email*"
+                />
+                <input
+                  id="phone"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  required
+                  minLength={PHONE_MIN_DIGITS}
+                  maxLength={PHONE_MAX_DIGITS}
+                  pattern="[0-9]{10,12}"
+                  title="Enter 10 to 12 digits"
+                  value={phone}
+                  onChange={(e) => setPhone(digitsOnly(e.target.value))}
+                  onBeforeInput={(e) => {
+                    const data = (e as unknown as InputEvent).data;
+                    if (data && /\D/.test(data)) e.preventDefault();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.ctrlKey || e.metaKey || e.altKey) return;
+                    const allowed = [
+                      "Backspace",
+                      "Delete",
+                      "Tab",
+                      "Escape",
+                      "Enter",
+                      "ArrowLeft",
+                      "ArrowRight",
+                      "Home",
+                      "End",
+                    ];
+                    if (allowed.includes(e.key)) return;
+                    if (!/^\d$/.test(e.key)) e.preventDefault();
+                  }}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    const text = e.clipboardData.getData("text");
+                    setPhone(digitsOnly(`${phone}${text}`));
+                  }}
+                  className="register-input"
+                  placeholder="Phone Number*"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="workExperience" className="register-label">
+                  Work Experience (in years)
+                </label>
+                <div className="register-select-wrap">
+                  <select
+                    id="workExperience"
+                    required
+                    value={workExperience}
+                    onChange={(e) => setWorkExperience(e.target.value)}
+                    className="register-input register-select"
+                  >
+                    <option value="" disabled>
+                      Select…
+                    </option>
+                    <option value="15+ Years">15+ Years</option>
+                    <option value="10-15 Years">10-15 Years</option>
+                    <option value="5-10 Years">5-10 Years</option>
+                    <option value="2-5 Years">2-5 Years</option>
+                    <option value="0-2 Years">0-2 Years</option>
+                    <option value="Fresher">Fresher</option>
+                    <option value="Still a student">Still a student</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="domain" className="register-label">
+                  Which domain are you currently working in?
+                </label>
+                <div className="register-select-wrap">
+                  <select
+                    id="domain"
+                    required
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    className="register-input register-select"
+                  >
+                    <option value="" disabled>
+                      Select…
+                    </option>
+                    <option value="Software Development / Engineering">
+                      Software Development / Engineering
+                    </option>
+                    <option value="Data Science & Analytics">
+                      Data Science & Analytics
+                    </option>
+                    <option value="Artificial Intelligence (AI)">
+                      Artificial Intelligence (AI)
+                    </option>
+                    <option value="Cybersecurity">Cybersecurity</option>
+                    <option value="IT Infrastructure / Cloud / Networking">
+                      IT Infrastructure / Cloud / Networking
+                    </option>
+                    <option value="Product / Project / Program Management">
+                      Product / Project / Program Management
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              {error && (
+                <p className="rounded-lg border border-red-500/30 bg-red-950/60 px-3 py-2 text-sm text-red-300">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="register-btn-primary mt-1"
+              >
+                {submitting ? "Registering…" : "Register Now"}
+              </button>
+            </form>
+          )}
+
+          <p className="mt-5 text-center text-sm text-white/45">
+            <button
+              type="button"
+              onClick={() => setShowResume((s) => !s)}
+              className="text-white/70 hover:text-white hover:underline"
+            >
+              {showResume ? "New here? Register" : "Already registered? Continue"}
+            </button>
+            <span className="mx-2 text-white/25">·</span>
+            <Link href={STANDINGS_PATH} className="text-white/70 hover:text-white hover:underline">
+              Leaderboard
+            </Link>
+          </p>
+        </div>
+      </main>
+    </div>
   );
 }
