@@ -187,15 +187,22 @@ export default function ResultsClient({ email }: { email: string }) {
       return false;
     }
 
+    let attempts = 0;
+
     async function pollRank() {
       const local = loadSession();
-      if (local && !local.registered) {
+      if (local && (!local.registered || !local.submitted)) {
         scheduleSync();
       }
       const apiPid = local?.pid ?? pid;
       const apiToken = local?.token ?? token;
       const ranked = await fetchRank(apiPid, apiToken);
-      if (!ranked && !cancelled) timer = setTimeout(pollRank, 8000);
+      if (!ranked && !cancelled) {
+        attempts += 1;
+        // Fast at first (sheet write lag), then ease off.
+        const delay = attempts < 6 ? 1500 : attempts < 12 ? 3000 : 6000;
+        timer = setTimeout(pollRank, delay);
+      }
     }
 
     void pollRank();
@@ -233,10 +240,11 @@ export default function ResultsClient({ email }: { email: string }) {
           email: data.email,
           status: "completed",
         },
-        { completed: true, submitted: Boolean(data.score) }
+        { completed: true, submitted: Boolean(data.score), score: data.score?.totalScore ?? null }
       );
     }
-  }, [data, pid, token]);
+    window.location.assign(leaderboardUrl(email));
+  }, [data, pid, token, email]);
 
   const [pdfBusy, setPdfBusy] = useState(false);
 
@@ -396,8 +404,8 @@ export default function ResultsClient({ email }: { email: string }) {
           </button>
 
           <div className="grid grid-cols-2 gap-3">
-            <Link
-              href={leaderboardUrl(email)}
+            <button
+              type="button"
               onClick={goToLeaderboard}
               className="results-btn-secondary flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-semibold text-white"
             >
@@ -416,7 +424,7 @@ export default function ResultsClient({ email }: { email: string }) {
                 />
               </svg>
               Leaderboard
-            </Link>
+            </button>
             <button
               type="button"
               onClick={() => void copyResultsLink()}

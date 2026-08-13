@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { questions } from "@/lib/questions";
 
 export interface LeaderboardRow {
@@ -40,8 +41,11 @@ interface LeaderboardViewProps {
   rows: LeaderboardRow[];
   me?: MeInfo | null;
   myPid?: string;
+  myName?: string;
+  myScore?: number | null;
   pendingName?: string;
   loading?: boolean;
+  backHref?: string;
 }
 
 function SkeletonPodium() {
@@ -85,20 +89,50 @@ export default function LeaderboardView({
   rows,
   me,
   myPid = "",
+  myName = "",
+  myScore = null,
   pendingName,
   loading = false,
+  backHref = "",
 }: LeaderboardViewProps) {
+  const youRef = useRef<HTMLLIElement | null>(null);
   const topThree = rows.slice(0, 3);
   const podium = podiumOrder(topThree);
 
-  const isMe = (pid: string) => Boolean(myPid) && pid === myPid;
-  const meInRows = rows.some((r) => isMe(r.pid));
+  const isMe = (row: LeaderboardRow, rank: number) => {
+    if (myPid && row.pid === myPid) return true;
+    if (me && me.rank === rank && myName && row.name === myName) return true;
+    if (
+      myName &&
+      myScore != null &&
+      row.name === myName &&
+      row.totalScore === myScore
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const meInRows = rows.some((r, i) => isMe(r, i + 1));
   const showMeBanner = Boolean(me) && !meInRows;
   const showPendingYou = Boolean(pendingName) && !meInRows && !me;
   const showSkeleton = loading && rows.length === 0 && !showPendingYou;
 
+  useEffect(() => {
+    if (!youRef.current) return;
+    youRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [rows, myPid, me, myScore]);
+
   return (
     <div className="lb-page w-full" aria-busy={loading || undefined}>
+      {backHref ? (
+        <div className="lb-nav">
+          <a href={backHref} className="lb-back">
+            ← Back to results
+          </a>
+        </div>
+      ) : null}
+
       {showSkeleton ? (
         <SkeletonPodium />
       ) : topThree.length > 0 ? (
@@ -106,25 +140,24 @@ export default function LeaderboardView({
           <div className="lb-trophy-bg" aria-hidden />
           <div className="lb-podium-area">
             <div className="lb-podium-grid">
-              {podium.map(({ rank, row }) => (
-                <div key={rank} className="lb-podium-slot">
-                  <p
-                    className={`lb-podium-name ${row && isMe(row.pid) ? "lb-podium-name--you" : ""}`}
-                    title={row?.name}
-                  >
-                    {row
-                      ? isMe(row.pid)
-                        ? `${row.name} (You)`
-                        : row.name
-                      : ""}
-                  </p>
-                  <div
-                    className={`lb-podium-block ${heightClass(rank)} ${row && isMe(row.pid) ? "lb-podium-block--you" : ""}`}
-                  >
-                    <span className="lb-podium-rank">{rank}</span>
+              {podium.map(({ rank, row }) => {
+                const mine = row ? isMe(row, rank) : false;
+                return (
+                  <div key={rank} className="lb-podium-slot">
+                    <p
+                      className={`lb-podium-name ${mine ? "lb-podium-name--you" : ""}`}
+                      title={row?.name}
+                    >
+                      {row ? (mine ? `${row.name} (You)` : row.name) : ""}
+                    </p>
+                    <div
+                      className={`lb-podium-block ${heightClass(rank)} ${mine ? "lb-podium-block--you" : ""}`}
+                    >
+                      <span className="lb-podium-rank">{rank}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -171,7 +204,7 @@ export default function LeaderboardView({
         ) : (
           <ul className="lb-list">
             {showPendingYou && pendingName && (
-              <li className="lb-row lb-row--you">
+              <li className="lb-row lb-row--you" ref={youRef}>
                 <span className="lb-row-name" title={pendingName}>
                   {pendingName} (You)
                 </span>
@@ -182,10 +215,11 @@ export default function LeaderboardView({
             )}
             {rows.map((row, i) => {
               const rank = i + 1;
-              const mine = isMe(row.pid);
+              const mine = isMe(row, rank);
               return (
                 <li
-                  key={row.pid}
+                  key={`${row.pid}-${rank}`}
+                  ref={mine ? youRef : undefined}
                   className={`lb-row ${mine ? "lb-row--you" : ""}`}
                 >
                   <span className="lb-row-name" title={row.name}>

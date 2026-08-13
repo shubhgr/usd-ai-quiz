@@ -5,6 +5,30 @@
   min-height: 100dvh;
 }
 
+.lb-nav {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 0;
+}
+
+.lb-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #75bee9;
+  text-decoration: none;
+}
+
+.lb-back:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
 .lb-trophy-wrap {
   position: relative;
   margin: 0 auto;

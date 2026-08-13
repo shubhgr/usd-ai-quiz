@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { gasSubmit } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
+import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
 
 interface SubmitBody {
   pid?: string;
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
     // computes the score + completion time, writes them, and marks the
     // participant as completed. The client never sends a score.
     const result = await gasSubmit(pid);
+    invalidateLeaderboardCache();
     return NextResponse.json({
       totalScore: result.totalScore,
       completionTimeSeconds: result.completionTimeSeconds,

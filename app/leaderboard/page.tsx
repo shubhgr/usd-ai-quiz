@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import LeaderboardView from "@/components/LeaderboardView";
-import { normalizeEmail } from "@/lib/quizUrls";
+import { normalizeEmail, resultsUrl } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
 import { loadSession } from "@/lib/clientSession";
 import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
@@ -23,13 +23,19 @@ function LeaderboardShell({
   rows = [],
   me = null,
   myPid = "",
+  myName = "",
+  myScore = null,
   pendingName = "",
+  backHref = "",
 }: {
   loading?: boolean;
   rows?: LeaderboardRow[];
   me?: MeInfo | null;
   myPid?: string;
+  myName?: string;
+  myScore?: number | null;
   pendingName?: string;
+  backHref?: string;
 }) {
   return (
     <main className="lb-page relative flex w-full flex-1 flex-col">
@@ -37,8 +43,11 @@ function LeaderboardShell({
         rows={rows}
         me={me}
         myPid={myPid}
+        myName={myName}
+        myScore={myScore}
         pendingName={pendingName}
         loading={loading}
+        backHref={backHref}
       />
     </main>
   );
@@ -55,9 +64,12 @@ export default function LeaderboardPage() {
 function Leaderboard() {
   const searchParams = useSearchParams();
   const email = normalizeEmail(searchParams.get("email") ?? "");
+  const backHref = email ? resultsUrl(email) : "/";
 
   const [pid, setPid] = useState("");
   const [token, setToken] = useState("");
+  const [myName, setMyName] = useState("");
+  const [myScore, setMyScore] = useState<number | null>(null);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [me, setMe] = useState<MeInfo | null>(null);
   const [ready, setReady] = useState(false);
@@ -71,16 +83,15 @@ function Leaderboard() {
   }, [rows]);
 
   useEffect(() => {
-    if (!email) return;
-    const session = loadSession();
-    if (
-      session &&
-      normalizeEmail(session.email) === email &&
-      session.completed &&
-      (session.score === null || !session.submitted)
-    ) {
-      setPendingName(session.name);
+    const local = loadSession();
+    if (!email || !local || normalizeEmail(local.email) !== email) return;
+    setMyName(local.name);
+    setMyScore(local.score);
+    if (local.completed) {
+      setPendingName(local.name);
     }
+    if (local.pid) setPid(local.pid);
+    if (local.token) setToken(local.token);
   }, [email]);
 
   useEffect(() => {
@@ -91,6 +102,7 @@ function Leaderboard() {
       if (cancelled || !creds) return;
       setPid(creds.pid);
       setToken(creds.token);
+      if (creds.name) setMyName(creds.name);
       persistResolvedCredentials(creds);
     })();
     return () => {
@@ -126,7 +138,9 @@ function Leaderboard() {
         }));
       setRows(nextRows);
       setMe(body.me ?? null);
-      if (body.me) setPendingName("");
+      if (body.me || nextRows.some((r) => r.pid === pid && pid)) {
+        setPendingName("");
+      }
       setError("");
       setReady(true);
     } catch (err) {
@@ -144,7 +158,10 @@ function Leaderboard() {
 
   useEffect(() => {
     void loadLeaderboard();
-    const interval = setInterval(loadLeaderboard, pendingName ? 15_000 : POLL_MS);
+    const interval = setInterval(
+      loadLeaderboard,
+      pendingName ? 5_000 : POLL_MS
+    );
     return () => clearInterval(interval);
   }, [loadLeaderboard, pendingName]);
 
@@ -170,8 +187,11 @@ function Leaderboard() {
         rows={rows}
         me={me}
         myPid={pid}
+        myName={myName}
+        myScore={myScore}
         pendingName={pendingName}
         loading={loading && !ready}
+        backHref={backHref}
       />
     </main>
   );
