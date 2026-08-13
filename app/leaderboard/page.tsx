@@ -10,7 +10,8 @@ import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
 import "./leaderboard.css";
 
 interface LeaderboardResponse {
-  topEntries: LeaderboardRow[];
+  topEntries?: LeaderboardRow[];
+  entries?: { name: string; rank: number; score: number }[];
   me?: MeInfo | null;
   error?: string;
 }
@@ -114,7 +115,16 @@ function Leaderboard() {
         if (res.status === 502 && rowsRef.current.length > 0) return;
         throw new Error(body.error ?? "Failed to load");
       }
-      setRows(body.topEntries ?? []);
+      const nextRows: LeaderboardRow[] =
+        body.topEntries ??
+        (body.entries ?? []).map((e) => ({
+          pid: `rank-${e.rank}`,
+          name: e.name,
+          totalScore: e.score,
+          completionTimeSeconds: 0,
+          completedAt: "",
+        }));
+      setRows(nextRows);
       setMe(body.me ?? null);
       if (body.me) setPendingName("");
       setError("");

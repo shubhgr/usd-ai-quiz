@@ -11,7 +11,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await getCachedLeaderboard({ limit });
-    return NextResponse.json({ topEntries: result.topEntries });
+    const entries = result.topEntries.map((e, i) => ({
+      name: e.name,
+      rank: i + 1,
+      score: e.totalScore,
+    }));
+    return NextResponse.json({ entries });
   } catch (err) {
     const response = respondSheetsError(err);
     if (response) return response;
