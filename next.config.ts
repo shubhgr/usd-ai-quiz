@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Allow embedding in Framer (and similar) iframes.
+  // Allow Framer (and any parent site) to embed this app in an iframe.
   async headers() {
     return [
       {
@@ -9,8 +9,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value:
-              "frame-ancestors 'self' https://*.framer.app https://*.framer.website https://*.framer.com https://framer.com https://*.vercel.app;",
+            value: "frame-ancestors *;",
           },
         ],
       },
