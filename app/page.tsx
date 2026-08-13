@@ -6,9 +6,9 @@ import Link from "next/link";
 import { saveSession, clearSession } from "@/lib/clientSession";
 import { scheduleSync } from "@/lib/backgroundSync";
 import { quizUrl, resultsUrl, STANDINGS_PATH } from "@/lib/quizUrls";
+import { requestEmbedStorageAccess } from "@/lib/embed";
 import { showToast } from "@/lib/toast";
 
-const REGISTER_WAIT_MS = 500;
 const PHONE_MIN_DIGITS = 10;
 const PHONE_MAX_DIGITS = 12;
 
@@ -38,6 +38,9 @@ export default function LandingPage() {
     e.preventDefault();
     setError("");
 
+    // Best-effort: unlock storage in third-party iframes (Framer) after click.
+    await requestEmbedStorageAccess();
+
     const fullName = `${firstName} ${lastName}`.trim();
     const normalizedEmail = email.trim().toLowerCase();
     const phoneDigits = digitsOnly(phone);
@@ -52,43 +55,68 @@ export default function LandingPage() {
     }
 
     setSubmitting(true);
-    const startedAt = Date.now();
 
     try {
-      const res = await fetch("/api/begin", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        const message = data.error ?? "Registration failed. Please try again.";
+      const beginRes = await fetch("/api/begin", { method: "POST" });
+      const beginData = await beginRes.json();
+      if (!beginRes.ok) {
+        const message =
+          beginData.error ?? "Registration failed. Please try again.";
         setError(message);
         showToast(message);
         return;
       }
 
+      const pid = String(beginData.pid);
+      // Await the sheet write so registration always lands in Sheets.
+      const regRes = await fetch("/api/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pid,
+          name: fullName,
+          email: normalizedEmail,
+          phone: phoneDigits,
+          workExperience,
+          domain,
+        }),
+      });
+      const regData = await regRes.json();
+      if (!regRes.ok) {
+        const message =
+          regData.error ?? "Registration failed. Please try again.";
+        setError(message);
+        showToast(message);
+        return;
+      }
+
+      const token = String(regData.token ?? beginData.token);
+      const canonicalPid = String(regData.pid ?? pid);
+      // Memory fallback keeps the quiz working inside Framer even without localStorage.
       saveSession({
-        pid: String(data.pid),
-        token: String(data.token),
+        pid: canonicalPid,
+        token,
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
         workExperience,
         domain,
         registeredAt: Date.now(),
-        registered: false,
+        registered: true,
         answers: {},
         syncedAnswerString: "",
-        completed: false,
-        submitted: false,
+        completed: Boolean(regData.existing && regData.status === "completed"),
+        submitted: Boolean(regData.existing && regData.status === "completed"),
         score: null,
         completionTimeSeconds: null,
         completedAt: null,
       });
 
-      // Sheet write starts immediately; the quiz does not wait for it.
       scheduleSync();
 
-      const remaining = REGISTER_WAIT_MS - (Date.now() - startedAt);
-      if (remaining > 0) {
-        await new Promise((resolve) => setTimeout(resolve, remaining));
+      if (regData.existing && regData.status === "completed") {
+        router.push(resultsUrl(normalizedEmail));
+        return;
       }
 
       router.push(quizUrl(normalizedEmail));
@@ -104,6 +132,7 @@ export default function LandingPage() {
   async function handleResume(e: FormEvent) {
     e.preventDefault();
     setResumeError("");
+    await requestEmbedStorageAccess();
     setResumeSubmitting(true);
 
     try {
