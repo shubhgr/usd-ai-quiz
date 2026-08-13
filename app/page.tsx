@@ -2,9 +2,9 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
-import { saveSession, clearSession } from "@/lib/clientSession";
+import { saveSession, clearSession, loadSession } from "@/lib/clientSession";
 import { scheduleSync } from "@/lib/backgroundSync";
-import { quizUrl, resultsUrl, STANDINGS_PATH } from "@/lib/quizUrls";
+import { quizUrl, resultsUrl, STANDINGS_PATH, normalizeEmail } from "@/lib/quizUrls";
 import { requestEmbedStorageAccess } from "@/lib/embed";
 import { showToast } from "@/lib/toast";
 
@@ -66,6 +66,7 @@ export default function LandingPage() {
     setSubmitting(true);
 
     try {
+      // Instant: issue pid/token (no Sheets call).
       const beginRes = await fetch("/api/begin", { method: "POST" });
       const beginData = await beginRes.json();
       if (!beginRes.ok) {
@@ -77,18 +78,83 @@ export default function LandingPage() {
       }
 
       const pid = String(beginData.pid);
-      // Sheet write can take ~1–2s; we wait so resume-by-email works after reload.
+      const token = String(beginData.token);
+      const registerPayload = {
+        pid,
+        name: fullName,
+        email: normalizedEmail,
+        phone: phoneDigits,
+        workExperience,
+        domain,
+      };
+
+      // Persist session first. If localStorage works, we can open the quiz
+      // immediately and write to Sheets in the background (~1–2s otherwise).
+      const durable = saveSession({
+        pid,
+        token,
+        name: fullName,
+        email: normalizedEmail,
+        phone: phoneDigits,
+        workExperience,
+        domain,
+        registeredAt: Date.now(),
+        registered: false,
+        answers: {},
+        syncedAnswerString: "",
+        completed: false,
+        submitted: false,
+        score: null,
+        completionTimeSeconds: null,
+        completedAt: null,
+      });
+
+      if (durable) {
+        void fetch("/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(registerPayload),
+        })
+          .then(async (res) => {
+            if (!res.ok) return;
+            const regData = (await res.json()) as {
+              pid?: string;
+              token?: string;
+              status?: string;
+              existing?: boolean;
+            };
+            const cur = loadSession();
+            if (!cur || normalizeEmail(cur.email) !== normalizedEmail) return;
+            saveSession({
+              ...cur,
+              pid: String(regData.pid ?? cur.pid),
+              token: String(regData.token ?? cur.token),
+              registered: true,
+              completed: Boolean(
+                regData.existing && regData.status === "completed"
+              ),
+              submitted: Boolean(
+                regData.existing && regData.status === "completed"
+              ),
+            });
+            if (regData.existing && regData.status === "completed") {
+              window.location.replace(resultsUrl(normalizedEmail));
+            }
+          })
+          .catch(() => {
+            scheduleSync();
+          });
+        scheduleSync();
+        go(quizUrl(normalizedEmail));
+        return;
+      }
+
+      // Slow path (storage blocked in some iframes): must wait for Sheets
+      // so /api/resume still works after a full reload.
       const regRes = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pid,
-          name: fullName,
-          email: normalizedEmail,
-          phone: phoneDigits,
-          workExperience,
-          domain,
-        }),
+        body: JSON.stringify(registerPayload),
       });
       const regData = await regRes.json();
       if (!regRes.ok) {
@@ -99,11 +165,9 @@ export default function LandingPage() {
         return;
       }
 
-      const token = String(regData.token ?? beginData.token);
-      const canonicalPid = String(regData.pid ?? pid);
       saveSession({
-        pid: canonicalPid,
-        token,
+        pid: String(regData.pid ?? pid),
+        token: String(regData.token ?? token),
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
