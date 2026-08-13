@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import Link from "next/link";
 import { saveSession, clearSession, loadSession } from "@/lib/clientSession";
 import { scheduleSync } from "@/lib/backgroundSync";
@@ -8,6 +8,7 @@ import { quizUrl, resultsUrl, STANDINGS_PATH, normalizeEmail } from "@/lib/quizU
 import { requestEmbedStorageAccess } from "@/lib/embed";
 import { showToast } from "@/lib/toast";
 import { errorMessage, fetchJson } from "@/lib/fetchJson";
+import { prefetchStandings } from "@/lib/rankEstimate";
 
 const PHONE_MIN_DIGITS = 10;
 const PHONE_MAX_DIGITS = 12;
@@ -43,6 +44,10 @@ export default function LandingPage() {
 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    prefetchStandings();
+  }, []);
 
   async function handleRegister(e: FormEvent) {
     e.preventDefault();

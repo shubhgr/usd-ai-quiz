@@ -1,6 +1,6 @@
 import { gasLeaderboard, type LeaderboardInfo } from "@/lib/sheets";
 
-const TTL_MS = 15_000;
+const TTL_MS = 45_000;
 const FETCH_LIMIT = 100;
 
 type MeInfo = LeaderboardInfo["me"];

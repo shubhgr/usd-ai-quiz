@@ -12,6 +12,8 @@ import {
   persistResolvedCredentials,
 } from "@/lib/resolveCredentials";
 import { allAnswersString } from "@/lib/quizScreens";
+import { scoreFromAnswers } from "@/lib/answerKey";
+import { prefetchStandings } from "@/lib/rankEstimate";
 
 const TOTAL_QUESTIONS = questions.length;
 
@@ -153,6 +155,11 @@ export default function QuizClient({ email }: { email: string }) {
     });
   }, [ready]);
 
+  useEffect(() => {
+    if (!ready) return;
+    prefetchStandings();
+  }, [ready]);
+
   const submit = useCallback(() => {
     if (submittingRef.current) return;
     submittingRef.current = true;
@@ -167,7 +174,9 @@ export default function QuizClient({ email }: { email: string }) {
     );
     const apiPid = session?.pid ?? pid;
     const apiToken = session?.token ?? token;
-    const answerStr = allAnswersString(answers);
+
+    // Instant local score — don't wait on Sheets or /api/score.
+    const totalScore = scoreFromAnswers(answers);
 
     saveSession({
       pid: apiPid,
@@ -183,40 +192,13 @@ export default function QuizClient({ email }: { email: string }) {
       syncedAnswerString: session?.syncedAnswerString ?? "",
       completed: true,
       submitted: false,
-      score: null,
+      score: totalScore,
       completionTimeSeconds,
       completedAt: completedAt.toISOString(),
     });
 
-    void (async () => {
-      const scoreRequest = (async () => {
-        const res = await fetch("/api/score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pid: apiPid,
-            token: apiToken,
-            answers: answerStr,
-          }),
-        });
-        if (!res.ok) return;
-        const body = (await res.json()) as { totalScore?: number };
-        const totalScore = Number(body.totalScore);
-        const cur = loadSession();
-        if (cur && !Number.isNaN(totalScore)) {
-          saveSession({ ...cur, score: totalScore });
-        }
-      })().catch(() => {
-        // Results page will score if this fails.
-      });
-
-      await Promise.race([
-        scoreRequest,
-        new Promise((resolve) => setTimeout(resolve, 800)),
-      ]);
-      router.replace(linkResults);
-      scheduleSync();
-    })();
+    scheduleSync();
+    router.replace(linkResults);
   }, [answers, pid, token, email, router, linkResults]);
 
   const answer = useCallback(

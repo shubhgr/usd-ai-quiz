@@ -18,6 +18,8 @@ import {
   setCachedRank,
   setLeaderboardClientCache,
 } from "@/lib/leaderboardClientCache";
+import { estimateRank, prefetchStandings } from "@/lib/rankEstimate";
+import { scoreFromAnswers } from "@/lib/answerKey";
 
 const REVEAL_MS = 500;
 
@@ -94,18 +96,41 @@ export default function ResultsClient({ email }: { email: string }) {
   useEffect(() => {
     const session = loadSession();
     if (session && normalizeEmail(session.email) === email) {
-      setPid(session.pid);
-      setToken(session.token);
-      setLocalTimeSeconds(session.completionTimeSeconds);
-      setData(localPreview(session, email));
-      if (session.score !== null) setRevealCard(true);
-      if (session.rank) setRank(session.rank);
+      // Fill score instantly from local answers if Sheets hasn't returned yet.
+      let next = session;
+      if (session.score === null && Object.keys(session.answers).length > 0) {
+        const totalScore = scoreFromAnswers(session.answers);
+        next = { ...session, score: totalScore };
+        saveSession(next);
+      }
+      setPid(next.pid);
+      setToken(next.token);
+      setLocalTimeSeconds(next.completionTimeSeconds);
+      setData(localPreview(next, email));
+      if (next.score !== null) setRevealCard(true);
+      if (next.rank) setRank(next.rank);
+
+      // Instant rank estimate from cached standings (no Sheets wait).
+      if (next.score !== null && !next.rank) {
+        const cached = getLeaderboardClientCache();
+        if (cached?.rows.length) {
+          const estimated = estimateRank(
+            cached.rows,
+            next.score,
+            next.completionTimeSeconds ?? 0,
+            next.pid
+          );
+          setRank(estimated);
+          setCachedRank(estimated);
+        }
+      }
     }
     const cachedRank = getLeaderboardClientCache()?.myRank;
     if (cachedRank) setRank((r) => r ?? cachedRank);
     if (session && (!session.submitted || !session.completed)) {
       scheduleSync();
     }
+    prefetchStandings();
     const timer = window.setTimeout(() => setRevealCard(true), REVEAL_MS);
     return () => window.clearTimeout(timer);
   }, [email]);

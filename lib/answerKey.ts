@@ -1,4 +1,5 @@
-// Server-only answer key — must match apps-script/Code.gs CORRECT_KEY string.
+// Server answer key — also used client-side for instant score display.
+// Final leaderboard score is still written by Apps Script on submit.
 export const CORRECT: Record<string, string> = {
   q1: "b",
   q2: "b",
