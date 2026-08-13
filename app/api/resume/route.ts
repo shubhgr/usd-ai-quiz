@@ -3,6 +3,22 @@ import { signToken } from "@/lib/token";
 import { gasResume } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
 
+const RESUME_TTL_MS = 60_000;
+const resumeCache = new Map<
+  string,
+  {
+    at: number;
+    body: {
+      pid: string;
+      token: string;
+      name: string;
+      email: string;
+      status: string;
+      lastActivityAt: string | null;
+    };
+  }
+>();
+
 async function resumeByEmail(email: string) {
   const normalized =
     typeof email === "string" ? email.trim().toLowerCase() : "";
@@ -13,16 +29,23 @@ async function resumeByEmail(email: string) {
     return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
   }
 
+  const cached = resumeCache.get(normalized);
+  if (cached && Date.now() - cached.at <= RESUME_TTL_MS) {
+    return NextResponse.json(cached.body);
+  }
+
   try {
     const existing = await gasResume(normalized);
-    return NextResponse.json({
+    const body = {
       pid: existing.pid,
       token: signToken(existing.pid),
       name: existing.name,
       email: existing.email,
       status: existing.status,
       lastActivityAt: existing.lastActivityAt,
-    });
+    };
+    resumeCache.set(normalized, { at: Date.now(), body });
+    return NextResponse.json(body);
   } catch (err) {
     const response = respondSheetsError(err);
     if (response) return response;

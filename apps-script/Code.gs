@@ -41,9 +41,14 @@ function handle(e) {
   var params = e.parameter || {};
   var action = String(params.action || "");
   var lock = null;
-  // Leaderboard is read-only; skipping the exclusive lock avoids piling up
-  // behind register/saveAnswers and making the page wait 50s+.
-  if (action !== "leaderboard") {
+  // Read-only actions skip the exclusive lock so Continue/leaderboard
+  // aren't stuck behind register/saveAnswers (which can take 30s+).
+  var needsLock =
+    action === "register" ||
+    action === "saveAnswers" ||
+    action === "clearResponses" ||
+    action === "submit";
+  if (needsLock) {
     lock = LockService.getScriptLock();
     if (!lock.tryLock(8000)) {
       return json({

@@ -220,6 +220,19 @@ export default function LandingPage() {
 
     try {
       const normalizedEmail = resumeEmail.trim().toLowerCase();
+
+      // Instant path: already have this email saved in this browser/iframe.
+      const local = loadSession();
+      if (local && normalizeEmail(local.email) === normalizedEmail && local.token) {
+        const page = local.completed ? "results" : "quiz";
+        go(
+          page === "results"
+            ? resultsUrl(normalizedEmail)
+            : quizUrl(normalizedEmail)
+        );
+        return;
+      }
+
       const res = await fetchJson<{
         pid?: string;
         token?: string;
@@ -231,7 +244,7 @@ export default function LandingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: normalizedEmail }),
-        timeoutMs: 20_000,
+        timeoutMs: 45_000,
       });
 
       if (!res.ok) {
@@ -273,7 +286,7 @@ export default function LandingPage() {
     } catch (err) {
       const message = errorMessage(
         err,
-        "Network error. Please check your connection and try again."
+        "Could not reach the registration server. Please try again."
       );
       setResumeError(message);
       showToast(message);
@@ -318,7 +331,7 @@ export default function LandingPage() {
                 disabled={resumeSubmitting}
                 className="register-btn-primary"
               >
-                {resumeSubmitting ? "Looking up…" : "Continue"}
+                {resumeSubmitting ? "Looking up your registration…" : "Continue"}
               </button>
             </form>
           ) : (

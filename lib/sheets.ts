@@ -58,18 +58,14 @@ async function gas<T extends GasResponse>(
     url.searchParams.set(key, String(value));
   }
 
-  // Apps Script web apps are known to occasionally answer a request with an
-  // HTML "Page not found" page (its /exec -> /macros/echo redirect hiccup).
-  // Every operation here is idempotent, so retrying is safe. We only give up
-  // after the Apps Script itself returns a deliberate { ok:false, ... }.
-  // GAS cold starts and script locks can exceed 10s. One successful call was
-  // observed at ~29s, so allow a generous per-attempt window with fewer retries.
-  const ATTEMPTS = 2;
-  const TIMEOUT_MS = 35_000;
+  // Apps Script web apps occasionally return an HTML "Page not found" page.
+  // Prefer more short retries over two long 35s waits.
+  const ATTEMPTS = 4;
+  const TIMEOUT_MS = 12_000;
   let lastError: unknown;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     if (attempt > 0) {
-      await new Promise((r) => setTimeout(r, 800 * attempt));
+      await new Promise((r) => setTimeout(r, 400 * attempt));
     }
     try {
       const res = await fetch(url.toString(), {
