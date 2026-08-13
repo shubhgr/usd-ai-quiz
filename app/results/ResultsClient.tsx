@@ -122,10 +122,13 @@ export default function ResultsClient({ email }: { email: string }) {
       scheduleSync();
     }
     prefetchStandings();
-    // Reveal quickly if score already known; otherwise wait for /api/score (with fallback).
-    const delay = session?.score !== null && session?.score !== undefined ? REVEAL_MS : 8000;
-    const timer = window.setTimeout(() => setRevealCard(true), delay);
-    return () => window.clearTimeout(timer);
+    // Only show the results card once we have a score — never flash an empty
+    // "calculating…" card after the loading screen.
+    if (session?.score !== null && session?.score !== undefined) {
+      const timer = window.setTimeout(() => setRevealCard(true), REVEAL_MS);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
   }, [email]);
 
   useEffect(() => {
@@ -233,6 +236,71 @@ export default function ResultsClient({ email }: { email: string }) {
         setData((current) => (current?.score ? current : preview));
         setLocalTimeSeconds(creds.score.completionTimeSeconds);
         setRevealCard(true);
+      } else if (creds.answers && creds.answers.length > 0) {
+        // Sheets hasn't written score yet — grade on Next immediately.
+        try {
+          const res = await fetch("/api/score", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pid: creds.pid,
+              token: creds.token,
+              answers: creds.answers,
+            }),
+          });
+          if (res.ok && !cancelled) {
+            const body = (await res.json()) as {
+              totalScore?: number;
+              graded?: Record<string, boolean>;
+            };
+            const totalScore = Number(body.totalScore);
+            if (!Number.isNaN(totalScore)) {
+              const cur = loadSession();
+              if (cur) saveSession({ ...cur, score: totalScore });
+              const answersMap: ResultsData["answers"] = {};
+              const raw = creds.answers.trim().toLowerCase();
+              for (let i = 0; i < raw.length && i < questions.length; i++) {
+                const ch = raw.charAt(i);
+                if (/^[abcd]$/.test(ch)) {
+                  const id = questions[i].id;
+                  answersMap[id] = {
+                    answer: ch,
+                    isCorrect: body.graded?.[id],
+                  };
+                }
+              }
+              const time = cur?.completionTimeSeconds ?? 0;
+              setData({
+                pid: creds.pid,
+                name: creds.name || cur?.name || "",
+                email: creds.email,
+                status: "completed",
+                score: {
+                  totalScore,
+                  completionTimeSeconds: time,
+                  completedAt: new Date().toISOString(),
+                },
+                answers: answersMap,
+                answeredQuestionIds: Object.keys(answersMap),
+              });
+              setLocalTimeSeconds(time);
+              setRevealCard(true);
+              const cached = getLeaderboardClientCache();
+              if (cached?.rows.length) {
+                const estimated = estimateRank(
+                  cached.rows,
+                  totalScore,
+                  time,
+                  creds.pid
+                );
+                setRank(estimated);
+                setCachedRank(estimated);
+              }
+            }
+          }
+        } catch {
+          // Polling / sync still continue.
+        }
       }
       if (creds.rank) {
         setRank(creds.rank);
@@ -440,24 +508,24 @@ export default function ResultsClient({ email }: { email: string }) {
     );
   }
 
-  if (!revealCard) {
+  if (!revealCard || !data?.score) {
     return (
       <main className="flex flex-1 items-center justify-center px-6 py-16">
         <div className="max-w-md text-center">
           <div className="mx-auto mb-6 h-12 w-12 animate-spin rounded-full border-2 border-[#75BEE9]/30 border-t-[#75BEE9]" />
           <h1 className="text-2xl font-bold">Calculating your score…</h1>
           <p className="mt-3 text-slate-400">
-            Your answers are being submitted. This usually takes a few seconds.
+            Scoring your answers. This usually takes a few seconds.
           </p>
         </div>
       </main>
     );
   }
 
-  const displayName = data?.name ?? "";
-  const score = data?.score ?? null;
-  const timeSeconds = score?.completionTimeSeconds ?? localTimeSeconds;
-  const pct = score ? Math.round((score.totalScore / questions.length) * 100) : null;
+  const displayName = data.name ?? "";
+  const score = data.score;
+  const timeSeconds = score.completionTimeSeconds ?? localTimeSeconds;
+  const pct = Math.round((score.totalScore / questions.length) * 100);
 
   return (
     <main className="relative mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-14">
@@ -496,27 +564,18 @@ export default function ResultsClient({ email }: { email: string }) {
             {displayName || email}
           </span>
           <span className={rank ? "results-you-rank" : "results-calculating"}>
-            {rank ? `#${rank}` : "calculating…"}
+            {rank ? `#${rank}` : "updating…"}
           </span>
         </div>
 
         <div className="relative mt-8 text-center">
-          {score ? (
-            <>
-              <p className="results-score-value text-7xl font-extrabold leading-none tracking-tight sm:text-8xl">
-                {score.totalScore}
-                <span className="text-3xl font-semibold text-slate-500 sm:text-4xl">
-                  /{questions.length}
-                </span>
-              </p>
-              <p className="mt-3 text-sm text-slate-400">{pct}% correct</p>
-            </>
-          ) : (
-            <>
-              <p className="results-calculating text-2xl sm:text-3xl">calculating…</p>
-              <p className="mt-3 text-sm text-slate-400">Score incoming</p>
-            </>
-          )}
+          <p className="results-score-value text-7xl font-extrabold leading-none tracking-tight sm:text-8xl">
+            {score.totalScore}
+            <span className="text-3xl font-semibold text-slate-500 sm:text-4xl">
+              /{questions.length}
+            </span>
+          </p>
+          <p className="mt-3 text-sm text-slate-400">{pct}% correct</p>
         </div>
 
         <div className="relative mt-8 grid grid-cols-2 gap-3">
@@ -533,7 +592,7 @@ export default function ResultsClient({ email }: { email: string }) {
               Rank
             </p>
             <p className={`mt-1 text-base font-semibold ${rank ? "text-white" : "results-calculating"}`}>
-              {rank ? `#${rank}` : "calculating…"}
+              {rank ? `#${rank}` : "updating…"}
             </p>
           </div>
         </div>

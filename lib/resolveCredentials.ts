@@ -1,6 +1,7 @@
 import { loadSession, saveSession, clearSession } from "./clientSession";
 import { normalizeEmail } from "./quizUrls";
 import { questions } from "./questions";
+import { allAnswersString } from "./quizScreens";
 
 export interface ResolvedCredentials {
   pid: string;
@@ -34,53 +35,80 @@ export async function resolveCredentialsByEmail(
   if (!normalized) return null;
 
   const local = loadSession();
-  // Prefer local pid/token whenever we have them — don't block on Sheets.
-  // (Framer + background register often hits resume before the row exists.)
-  if (local && normalizeEmail(local.email) === normalized && local.token && local.pid) {
+  const hasLocal =
+    Boolean(local) &&
+    normalizeEmail(local!.email) === normalized &&
+    Boolean(local!.token) &&
+    Boolean(local!.pid);
+
+  // Instant path only when we already have a score — otherwise we still need
+  // Sheets (or /api/score) to finish scoring for results/leaderboard.
+  if (hasLocal && local!.score !== null) {
     return {
-      pid: local.pid,
-      token: local.token,
-      name: local.name,
-      email: local.email,
-      status: local.completed
+      pid: local!.pid,
+      token: local!.token,
+      name: local!.name,
+      email: local!.email,
+      status: local!.completed
         ? "completed"
-        : local.registered
+        : local!.registered
           ? "in_progress"
           : "not_started",
-      score:
-        local.score !== null
-          ? {
-              totalScore: local.score,
-              completionTimeSeconds: local.completionTimeSeconds ?? 0,
-              completedAt: local.completedAt,
-            }
-          : null,
-      rank: local.rank ?? null,
+      score: {
+        totalScore: local!.score,
+        completionTimeSeconds: local!.completionTimeSeconds ?? 0,
+        completedAt: local!.completedAt,
+      },
+      rank: local!.rank ?? null,
+      answers: allAnswersString(local!.answers),
     };
   }
 
-  const res = await fetch("/api/resume", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: normalized }),
-  });
-  const data = (await res.json()) as ResolvedCredentials & { error?: string };
-  if (!res.ok) return null;
-
-  if (local && normalizeEmail(local.email) !== normalized) {
-    clearSession();
+  try {
+    const res = await fetch("/api/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalized }),
+    });
+    const data = (await res.json()) as ResolvedCredentials & { error?: string };
+    if (res.ok) {
+      if (local && normalizeEmail(local.email) !== normalized) {
+        clearSession();
+      }
+      return {
+        pid: data.pid,
+        token: data.token,
+        name: local?.name ?? data.name ?? "",
+        email: normalized,
+        status: data.status,
+        answers: data.answers ?? "",
+        score: data.score ?? null,
+        rank: data.rank ?? null,
+      };
+    }
+  } catch {
+    // Fall through to local credentials if present.
   }
 
-  return {
-    pid: data.pid,
-    token: data.token,
-    name: local?.name ?? data.name ?? "",
-    email: normalized,
-    status: data.status,
-    answers: data.answers ?? "",
-    score: data.score ?? null,
-    rank: data.rank ?? null,
-  };
+  // Sheets slow/unavailable — still let quiz continue with local pid/token.
+  if (hasLocal) {
+    return {
+      pid: local!.pid,
+      token: local!.token,
+      name: local!.name,
+      email: local!.email,
+      status: local!.completed
+        ? "completed"
+        : local!.registered
+          ? "in_progress"
+          : "not_started",
+      score: null,
+      rank: local!.rank ?? null,
+      answers: allAnswersString(local!.answers),
+    };
+  }
+
+  return null;
 }
 
 export function persistResolvedCredentials(
