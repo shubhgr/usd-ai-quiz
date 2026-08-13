@@ -69,6 +69,7 @@ export function persistResolvedCredentials(
     score: existing?.score ?? null,
     completionTimeSeconds: existing?.completionTimeSeconds ?? null,
     completedAt: existing?.completedAt ?? null,
+    rank: existing?.rank ?? null,
     ...patch,
   });
 }

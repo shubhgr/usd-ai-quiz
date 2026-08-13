@@ -13,6 +13,11 @@ import {
 import { downloadResultPdf } from "@/lib/resultPdf";
 import { showToast } from "@/lib/toast";
 import { allAnswersString } from "@/lib/quizScreens";
+import {
+  getLeaderboardClientCache,
+  setCachedRank,
+  setLeaderboardClientCache,
+} from "@/lib/leaderboardClientCache";
 
 const REVEAL_MS = 500;
 
@@ -70,7 +75,12 @@ export default function ResultsClient({ email }: { email: string }) {
   const [ready, setReady] = useState(false);
   const [copied, setCopied] = useState(false);
   const [revealCard, setRevealCard] = useState(false);
-  const [rank, setRank] = useState<number | null>(null);
+  const [rank, setRank] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const session = loadSession();
+    if (session?.rank) return session.rank;
+    return getLeaderboardClientCache()?.myRank ?? null;
+  });
   const [localTimeSeconds, setLocalTimeSeconds] = useState<number | null>(null);
 
   useEffect(() => {
@@ -89,7 +99,10 @@ export default function ResultsClient({ email }: { email: string }) {
       setLocalTimeSeconds(session.completionTimeSeconds);
       setData(localPreview(session, email));
       if (session.score !== null) setRevealCard(true);
+      if (session.rank) setRank(session.rank);
     }
+    const cachedRank = getLeaderboardClientCache()?.myRank;
+    if (cachedRank) setRank((r) => r ?? cachedRank);
     if (session && (!session.submitted || !session.completed)) {
       scheduleSync();
     }
@@ -173,18 +186,63 @@ export default function ResultsClient({ email }: { email: string }) {
     async function fetchRank(apiPid: string, apiToken: string) {
       try {
         const res = await fetch(
-          `/api/leaderboard?limit=20&pid=${encodeURIComponent(apiPid)}&token=${encodeURIComponent(apiToken)}`
+          `/api/leaderboard?limit=100&pid=${encodeURIComponent(apiPid)}&token=${encodeURIComponent(apiToken)}`
         );
         if (!res.ok) return false;
-        const body = (await res.json()) as { me?: { rank?: number } | null };
+        const body = (await res.json()) as {
+          me?: {
+            rank?: number;
+            totalScore?: number;
+            completionTimeSeconds?: number;
+            completedAt?: string;
+          } | null;
+          topEntries?: {
+            pid: string;
+            name: string;
+            totalScore: number;
+            completionTimeSeconds?: number;
+            completedAt?: string;
+          }[];
+        };
+        if (!cancelled && body.topEntries?.length) {
+          setLeaderboardClientCache({
+            rows: body.topEntries.map((e) => ({
+              pid: e.pid,
+              name: e.name,
+              totalScore: e.totalScore,
+              completionTimeSeconds: e.completionTimeSeconds ?? 0,
+              completedAt: e.completedAt ?? "",
+            })),
+            me: body.me?.rank
+              ? {
+                  rank: body.me.rank,
+                  totalScore: body.me.totalScore ?? 0,
+                  completionTimeSeconds: body.me.completionTimeSeconds ?? 0,
+                  completedAt: body.me.completedAt ?? "",
+                }
+              : null,
+            myRank: body.me?.rank ?? null,
+          });
+        }
         if (!cancelled && body.me?.rank) {
           setRank(body.me.rank);
+          setCachedRank(body.me.rank);
+          const cur = loadSession();
+          if (cur) saveSession({ ...cur, rank: body.me.rank });
           return true;
         }
       } catch {
         // retry
       }
       return false;
+    }
+
+    // Already have a cached rank — refresh quietly in the background.
+    if (rank) {
+      void fetchRank(pid, token);
+      return () => {
+        cancelled = true;
+      };
     }
 
     let attempts = 0;
@@ -199,7 +257,6 @@ export default function ResultsClient({ email }: { email: string }) {
       const ranked = await fetchRank(apiPid, apiToken);
       if (!ranked && !cancelled) {
         attempts += 1;
-        // Fast at first (sheet write lag), then ease off.
         const delay = attempts < 6 ? 1500 : attempts < 12 ? 3000 : 6000;
         timer = setTimeout(pollRank, delay);
       }
@@ -210,7 +267,7 @@ export default function ResultsClient({ email }: { email: string }) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [pid, token]);
+  }, [pid, token, rank]);
 
   const copyResultsLink = useCallback(async () => {
     const url = `${window.location.origin}${resultsUrl(email)}`;

@@ -5,8 +5,13 @@ import { useSearchParams } from "next/navigation";
 import LeaderboardView from "@/components/LeaderboardView";
 import { normalizeEmail, resultsUrl } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
-import { loadSession } from "@/lib/clientSession";
+import { loadSession, saveSession } from "@/lib/clientSession";
 import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
+import {
+  getLeaderboardClientCache,
+  setCachedRank,
+  setLeaderboardClientCache,
+} from "@/lib/leaderboardClientCache";
 import "./leaderboard.css";
 
 interface LeaderboardResponse {
@@ -17,6 +22,11 @@ interface LeaderboardResponse {
 }
 
 const POLL_MS = 30_000;
+
+function readInitialCache() {
+  if (typeof window === "undefined") return null;
+  return getLeaderboardClientCache();
+}
 
 function LeaderboardShell({
   loading = true,
@@ -54,8 +64,17 @@ function LeaderboardShell({
 }
 
 export default function LeaderboardPage() {
+  const cached = readInitialCache();
   return (
-    <Suspense fallback={<LeaderboardShell loading />}>
+    <Suspense
+      fallback={
+        <LeaderboardShell
+          loading={!cached?.rows.length}
+          rows={cached?.rows ?? []}
+          me={cached?.me ?? null}
+        />
+      }
+    >
       <Leaderboard />
     </Suspense>
   );
@@ -65,18 +84,19 @@ function Leaderboard() {
   const searchParams = useSearchParams();
   const email = normalizeEmail(searchParams.get("email") ?? "");
   const backHref = email ? resultsUrl(email) : "/";
+  const cached = readInitialCache();
 
   const [pid, setPid] = useState("");
   const [token, setToken] = useState("");
   const [myName, setMyName] = useState("");
   const [myScore, setMyScore] = useState<number | null>(null);
-  const [rows, setRows] = useState<LeaderboardRow[]>([]);
-  const [me, setMe] = useState<MeInfo | null>(null);
-  const [ready, setReady] = useState(false);
+  const [rows, setRows] = useState<LeaderboardRow[]>(cached?.rows ?? []);
+  const [me, setMe] = useState<MeInfo | null>(cached?.me ?? null);
+  const [ready, setReady] = useState(Boolean(cached?.rows.length));
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cached?.rows.length);
   const [pendingName, setPendingName] = useState("");
-  const rowsRef = useRef<LeaderboardRow[]>([]);
+  const rowsRef = useRef<LeaderboardRow[]>(cached?.rows ?? []);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -87,7 +107,10 @@ function Leaderboard() {
     if (!email || !local || normalizeEmail(local.email) !== email) return;
     setMyName(local.name);
     setMyScore(local.score);
-    if (local.completed) {
+    const hasMe = Boolean(
+      local.pid && rowsRef.current.some((r) => r.pid === local.pid)
+    );
+    if (local.completed && !hasMe) {
       setPendingName(local.name);
     }
     if (local.pid) setPid(local.pid);
@@ -112,10 +135,11 @@ function Leaderboard() {
 
   const loadingRef = useRef(false);
 
-  const loadLeaderboard = useCallback(async () => {
+  const loadLeaderboard = useCallback(async (opts?: { silent?: boolean }) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
-    setLoading(true);
+    const hasRows = rowsRef.current.length > 0;
+    if (!opts?.silent && !hasRows) setLoading(true);
     try {
       const url =
         pid && token
@@ -138,6 +162,16 @@ function Leaderboard() {
         }));
       setRows(nextRows);
       setMe(body.me ?? null);
+      setLeaderboardClientCache({
+        rows: nextRows,
+        me: body.me ?? null,
+        myRank: body.me?.rank ?? null,
+      });
+      if (body.me?.rank) {
+        setCachedRank(body.me.rank);
+        const cur = loadSession();
+        if (cur) saveSession({ ...cur, rank: body.me.rank });
+      }
       if (body.me || nextRows.some((r) => r.pid === pid && pid)) {
         setPendingName("");
       }
@@ -157,9 +191,9 @@ function Leaderboard() {
   }, [pid, token]);
 
   useEffect(() => {
-    void loadLeaderboard();
+    void loadLeaderboard({ silent: rowsRef.current.length > 0 });
     const interval = setInterval(
-      loadLeaderboard,
+      () => void loadLeaderboard({ silent: true }),
       pendingName ? 5_000 : POLL_MS
     );
     return () => clearInterval(interval);
@@ -190,7 +224,7 @@ function Leaderboard() {
         myName={myName}
         myScore={myScore}
         pendingName={pendingName}
-        loading={loading && !ready}
+        loading={loading && !ready && rows.length === 0}
         backHref={backHref}
       />
     </main>

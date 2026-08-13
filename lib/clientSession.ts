@@ -15,6 +15,8 @@ export interface LocalSession {
   score: number | null;
   completionTimeSeconds: number | null;
   completedAt: string | null;
+  /** Cached leaderboard rank once known (avoids "calculating…" on revisit). */
+  rank?: number | null;
 }
 
 const KEY = "usd-session";
@@ -28,6 +30,7 @@ function normalize(session: LocalSession): LocalSession {
     ...session,
     registered: session.registered ?? false,
     syncedAnswerString: session.syncedAnswerString ?? "",
+    rank: session.rank ?? null,
   };
 }
 
