@@ -7,6 +7,7 @@ import { scheduleSync } from "@/lib/backgroundSync";
 import { quizUrl, resultsUrl, STANDINGS_PATH, normalizeEmail } from "@/lib/quizUrls";
 import { requestEmbedStorageAccess } from "@/lib/embed";
 import { showToast } from "@/lib/toast";
+import { errorMessage, fetchJson } from "@/lib/fetchJson";
 
 const PHONE_MIN_DIGITS = 10;
 const PHONE_MAX_DIGITS = 12;
@@ -47,7 +48,6 @@ export default function LandingPage() {
     e.preventDefault();
     setError("");
 
-    // Don't let Storage Access API hang the button in embeds.
     await withTimeout(requestEmbedStorageAccess(), 400);
 
     const fullName = `${firstName} ${lastName}`.trim();
@@ -66,19 +66,22 @@ export default function LandingPage() {
     setSubmitting(true);
 
     try {
-      // Instant: issue pid/token (no Sheets call).
-      const beginRes = await fetch("/api/begin", { method: "POST" });
-      const beginData = await beginRes.json();
-      if (!beginRes.ok) {
+      const begin = await fetchJson<{
+        pid?: string;
+        token?: string;
+        error?: string;
+      }>("/api/begin", { method: "POST", timeoutMs: 12_000 });
+
+      if (!begin.ok || !begin.data.pid || !begin.data.token) {
         const message =
-          beginData.error ?? "Registration failed. Please try again.";
+          begin.data.error ?? "Registration failed. Please try again.";
         setError(message);
         showToast(message);
         return;
       }
 
-      const pid = String(beginData.pid);
-      const token = String(beginData.token);
+      const pid = String(begin.data.pid);
+      const token = String(begin.data.token);
       const registerPayload = {
         pid,
         name: fullName,
@@ -88,8 +91,6 @@ export default function LandingPage() {
         domain,
       };
 
-      // Persist session first. If localStorage works, we can open the quiz
-      // immediately and write to Sheets in the background (~1–2s otherwise).
       const durable = saveSession({
         pid,
         token,
@@ -110,14 +111,18 @@ export default function LandingPage() {
       });
 
       if (durable) {
-        void fetch("/api/register", {
+        void fetchJson("/api/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(registerPayload),
+          timeoutMs: 35_000,
         })
-          .then(async (res) => {
-            if (!res.ok) return;
-            const regData = (await res.json()) as {
+          .then((reg) => {
+            if (!reg.ok) {
+              scheduleSync();
+              return;
+            }
+            const regData = reg.data as {
               pid?: string;
               token?: string;
               status?: string;
@@ -141,33 +146,36 @@ export default function LandingPage() {
               window.location.replace(resultsUrl(normalizedEmail));
             }
           })
-          .catch(() => {
-            scheduleSync();
-          });
+          .catch(() => scheduleSync());
         scheduleSync();
         go(quizUrl(normalizedEmail));
         return;
       }
 
-      // Slow path (storage blocked in some iframes): must wait for Sheets
-      // so /api/resume still works after a full reload.
-      const regRes = await fetch("/api/register", {
+      const reg = await fetchJson<{
+        pid?: string;
+        token?: string;
+        status?: string;
+        existing?: boolean;
+        error?: string;
+      }>("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(registerPayload),
+        timeoutMs: 20_000,
       });
-      const regData = await regRes.json();
-      if (!regRes.ok) {
+
+      if (!reg.ok) {
         const message =
-          regData.error ?? "Registration failed. Please try again.";
+          reg.data.error ?? "Registration failed. Please try again.";
         setError(message);
         showToast(message);
         return;
       }
 
       saveSession({
-        pid: String(regData.pid ?? pid),
-        token: String(regData.token ?? token),
+        pid: String(reg.data.pid ?? pid),
+        token: String(reg.data.token ?? token),
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
@@ -177,8 +185,8 @@ export default function LandingPage() {
         registered: true,
         answers: {},
         syncedAnswerString: "",
-        completed: Boolean(regData.existing && regData.status === "completed"),
-        submitted: Boolean(regData.existing && regData.status === "completed"),
+        completed: Boolean(reg.data.existing && reg.data.status === "completed"),
+        submitted: Boolean(reg.data.existing && reg.data.status === "completed"),
         score: null,
         completionTimeSeconds: null,
         completedAt: null,
@@ -186,14 +194,17 @@ export default function LandingPage() {
 
       scheduleSync();
 
-      if (regData.existing && regData.status === "completed") {
+      if (reg.data.existing && reg.data.status === "completed") {
         go(resultsUrl(normalizedEmail));
         return;
       }
 
       go(quizUrl(normalizedEmail));
-    } catch {
-      const message = "Network error. Please check your connection and try again.";
+    } catch (err) {
+      const message = errorMessage(
+        err,
+        "Network error. Please check your connection and try again."
+      );
       setError(message);
       showToast(message);
     } finally {
@@ -208,25 +219,62 @@ export default function LandingPage() {
     setResumeSubmitting(true);
 
     try {
-      const res = await fetch("/api/resume", {
+      const normalizedEmail = resumeEmail.trim().toLowerCase();
+      const res = await fetchJson<{
+        pid?: string;
+        token?: string;
+        name?: string;
+        email?: string;
+        status?: string;
+        error?: string;
+      }>("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: resumeEmail }),
+        body: JSON.stringify({ email: normalizedEmail }),
+        timeoutMs: 20_000,
       });
-      const data = await res.json();
+
       if (!res.ok) {
         const message =
-          data.error ?? "Couldn't find a registration for that email.";
+          res.data.error ?? "Couldn't find a registration for that email.";
         setResumeError(message);
         showToast(message);
         return;
       }
+
       clearSession();
-      const normalizedEmail = resumeEmail.trim().toLowerCase();
-      const page = data.status === "completed" ? "results" : "quiz";
-      go(page === "results" ? resultsUrl(normalizedEmail) : quizUrl(normalizedEmail));
-    } catch {
-      const message = "Network error. Please check your connection and try again.";
+      if (res.data.pid && res.data.token) {
+        saveSession({
+          pid: String(res.data.pid),
+          token: String(res.data.token),
+          name: String(res.data.name ?? ""),
+          email: normalizedEmail,
+          phone: "",
+          workExperience: "",
+          domain: "",
+          registeredAt: Date.now(),
+          registered: true,
+          answers: {},
+          syncedAnswerString: "",
+          completed: res.data.status === "completed",
+          submitted: res.data.status === "completed",
+          score: null,
+          completionTimeSeconds: null,
+          completedAt: null,
+        });
+      }
+
+      const page = res.data.status === "completed" ? "results" : "quiz";
+      go(
+        page === "results"
+          ? resultsUrl(normalizedEmail)
+          : quizUrl(normalizedEmail)
+      );
+    } catch (err) {
+      const message = errorMessage(
+        err,
+        "Network error. Please check your connection and try again."
+      );
       setResumeError(message);
       showToast(message);
     } finally {
@@ -270,7 +318,7 @@ export default function LandingPage() {
                 disabled={resumeSubmitting}
                 className="register-btn-primary"
               >
-                {resumeSubmitting ? "Loading…" : "Continue"}
+                {resumeSubmitting ? "Looking up…" : "Continue"}
               </button>
             </form>
           ) : (

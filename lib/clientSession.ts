@@ -34,38 +34,55 @@ function normalize(session: LocalSession): LocalSession {
   };
 }
 
+function readStore(storage: Storage): LocalSession | null {
+  try {
+    const raw = storage.getItem(KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LocalSession;
+    if (!parsed?.pid) return null;
+    return normalize(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function writeStore(storage: Storage, session: LocalSession): boolean {
+  try {
+    storage.setItem(KEY, JSON.stringify(session));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function loadSession(): LocalSession | null {
   if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as LocalSession;
-      if (parsed.pid) {
-        memorySession = normalize(parsed);
-        return memorySession;
-      }
-    }
-  } catch {
-    // localStorage blocked — use memory
+  const fromLocal = readStore(window.localStorage);
+  if (fromLocal) {
+    memorySession = fromLocal;
+    return fromLocal;
+  }
+  const fromSession = readStore(window.sessionStorage);
+  if (fromSession) {
+    memorySession = fromSession;
+    return fromSession;
   }
   return memorySession;
 }
 
 /**
- * Always keeps an in-memory copy so the quiz works inside Framer iframes
- * even when the browser blocks localStorage.
- * Returns true when localStorage also persisted (false = memory-only).
+ * Always keeps an in-memory copy. Prefers localStorage, then sessionStorage
+ * (sessionStorage usually still works in Framer iframes and survives reloads
+ * inside the same tab).
+ * Returns true when something durable was written (local or session storage).
  */
 export function saveSession(session: LocalSession): boolean {
   if (typeof window === "undefined") return false;
   const next = normalize(session);
   memorySession = next;
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(next));
-    return true;
-  } catch {
-    return false;
-  }
+  if (writeStore(window.localStorage, next)) return true;
+  if (writeStore(window.sessionStorage, next)) return true;
+  return false;
 }
 
 export function clearSession(): void {
@@ -76,15 +93,26 @@ export function clearSession(): void {
   } catch {
     // ignore
   }
+  try {
+    window.sessionStorage.removeItem(KEY);
+  } catch {
+    // ignore
+  }
 }
 
-/** True when the active session is memory-only (no durable localStorage). */
+/** True when the active session is memory-only (no durable storage). */
 export function isMemoryOnlySession(): boolean {
   if (typeof window === "undefined") return false;
   if (!memorySession) return false;
   try {
-    return window.localStorage.getItem(KEY) == null;
+    if (window.localStorage.getItem(KEY)) return false;
   } catch {
-    return true;
+    // ignore
   }
+  try {
+    if (window.sessionStorage.getItem(KEY)) return false;
+  } catch {
+    // ignore
+  }
+  return true;
 }
