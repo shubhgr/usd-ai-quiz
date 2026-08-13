@@ -12,7 +12,6 @@ import {
   persistResolvedCredentials,
 } from "@/lib/resolveCredentials";
 import { allAnswersString } from "@/lib/quizScreens";
-import { scoreFromAnswers } from "@/lib/answerKey";
 import { prefetchStandings } from "@/lib/rankEstimate";
 
 const TOTAL_QUESTIONS = questions.length;
@@ -174,9 +173,7 @@ export default function QuizClient({ email }: { email: string }) {
     );
     const apiPid = session?.pid ?? pid;
     const apiToken = session?.token ?? token;
-
-    // Instant local score — don't wait on Sheets or /api/score.
-    const totalScore = scoreFromAnswers(answers);
+    const answerStr = allAnswersString(answers);
 
     saveSession({
       pid: apiPid,
@@ -192,10 +189,34 @@ export default function QuizClient({ email }: { email: string }) {
       syncedAnswerString: session?.syncedAnswerString ?? "",
       completed: true,
       submitted: false,
-      score: totalScore,
+      score: null,
       completionTimeSeconds,
       completedAt: completedAt.toISOString(),
     });
+
+    // Score on the server only (answer key never ships to the browser).
+    // Kick off scoring, then navigate — results page retries if this is slow.
+    void fetch("/api/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pid: apiPid,
+        token: apiToken,
+        answers: answerStr,
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const body = (await res.json()) as { totalScore?: number };
+        const totalScore = Number(body.totalScore);
+        const cur = loadSession();
+        if (cur && !Number.isNaN(totalScore)) {
+          saveSession({ ...cur, score: totalScore });
+        }
+      })
+      .catch(() => {
+        // Results page will score via /api/score if this fails.
+      });
 
     scheduleSync();
     router.replace(linkResults);

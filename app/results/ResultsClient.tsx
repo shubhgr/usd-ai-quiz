@@ -19,7 +19,6 @@ import {
   setLeaderboardClientCache,
 } from "@/lib/leaderboardClientCache";
 import { estimateRank, prefetchStandings } from "@/lib/rankEstimate";
-import { scoreFromAnswers } from "@/lib/answerKey";
 
 const REVEAL_MS = 500;
 
@@ -96,29 +95,21 @@ export default function ResultsClient({ email }: { email: string }) {
   useEffect(() => {
     const session = loadSession();
     if (session && normalizeEmail(session.email) === email) {
-      // Fill score instantly from local answers if Sheets hasn't returned yet.
-      let next = session;
-      if (session.score === null && Object.keys(session.answers).length > 0) {
-        const totalScore = scoreFromAnswers(session.answers);
-        next = { ...session, score: totalScore };
-        saveSession(next);
-      }
-      setPid(next.pid);
-      setToken(next.token);
-      setLocalTimeSeconds(next.completionTimeSeconds);
-      setData(localPreview(next, email));
-      if (next.score !== null) setRevealCard(true);
-      if (next.rank) setRank(next.rank);
+      setPid(session.pid);
+      setToken(session.token);
+      setLocalTimeSeconds(session.completionTimeSeconds);
+      setData(localPreview(session, email));
+      if (session.score !== null) setRevealCard(true);
+      if (session.rank) setRank(session.rank);
 
-      // Instant rank estimate from cached standings (no Sheets wait).
-      if (next.score !== null && !next.rank) {
+      if (session.score !== null && !session.rank) {
         const cached = getLeaderboardClientCache();
         if (cached?.rows.length) {
           const estimated = estimateRank(
             cached.rows,
-            next.score,
-            next.completionTimeSeconds ?? 0,
-            next.pid
+            session.score,
+            session.completionTimeSeconds ?? 0,
+            session.pid
           );
           setRank(estimated);
           setCachedRank(estimated);
@@ -131,7 +122,9 @@ export default function ResultsClient({ email }: { email: string }) {
       scheduleSync();
     }
     prefetchStandings();
-    const timer = window.setTimeout(() => setRevealCard(true), REVEAL_MS);
+    // Reveal quickly if score already known; otherwise wait for /api/score (with fallback).
+    const delay = session?.score !== null && session?.score !== undefined ? REVEAL_MS : 8000;
+    const timer = window.setTimeout(() => setRevealCard(true), delay);
     return () => window.clearTimeout(timer);
   }, [email]);
 
@@ -140,7 +133,7 @@ export default function ResultsClient({ email }: { email: string }) {
     if (!session || normalizeEmail(session.email) !== email) return;
     if (session.score !== null) return;
     const answerStr = allAnswersString(session.answers);
-    if (!answerStr) return;
+    if (!answerStr || !session.pid || !session.token) return;
 
     let cancelled = false;
     (async () => {
@@ -155,14 +148,35 @@ export default function ResultsClient({ email }: { email: string }) {
           }),
         });
         if (!res.ok || cancelled) return;
-        const body = (await res.json()) as { totalScore?: number };
+        const body = (await res.json()) as {
+          totalScore?: number;
+          graded?: Record<string, boolean>;
+        };
         const totalScore = Number(body.totalScore);
         if (Number.isNaN(totalScore)) return;
         const cur = loadSession();
         if (!cur) return;
         saveSession({ ...cur, score: totalScore });
         if (cancelled) return;
-        setData(localPreview({ ...cur, score: totalScore }, email));
+        const preview = localPreview({ ...cur, score: totalScore }, email);
+        if (preview && body.graded) {
+          for (const [id, ok] of Object.entries(body.graded)) {
+            if (preview.answers[id]) preview.answers[id].isCorrect = ok;
+          }
+        }
+        setData(preview);
+        setRevealCard(true);
+        const cached = getLeaderboardClientCache();
+        if (cached?.rows.length) {
+          const estimated = estimateRank(
+            cached.rows,
+            totalScore,
+            cur.completionTimeSeconds ?? 0,
+            cur.pid
+          );
+          setRank(estimated);
+          setCachedRank(estimated);
+        }
       } catch {
         // Rank polling / sheet sync still continue.
       }
@@ -371,17 +385,43 @@ export default function ResultsClient({ email }: { email: string }) {
     if (!data?.score || pdfBusy) return;
     setPdfBusy(true);
     try {
+      let answers = data.answers;
+      const needsGrade = Object.values(answers).some((a) => a.isCorrect === undefined);
+      if (needsGrade && pid && token) {
+        const answerStr = allAnswersString(
+          Object.fromEntries(
+            Object.entries(answers).map(([id, a]) => [id, a.answer])
+          )
+        );
+        const res = await fetch("/api/score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pid, token, answers: answerStr }),
+        });
+        if (res.ok) {
+          const body = (await res.json()) as {
+            graded?: Record<string, boolean>;
+          };
+          if (body.graded) {
+            answers = { ...answers };
+            for (const [id, ok] of Object.entries(body.graded)) {
+              if (answers[id]) answers[id] = { ...answers[id], isCorrect: ok };
+            }
+            setData((prev) => (prev ? { ...prev, answers } : prev));
+          }
+        }
+      }
       await downloadResultPdf({
         pid: data.pid,
         name: data.name,
         email: data.email,
         score: data.score,
-        answers: data.answers,
+        answers,
       });
     } finally {
       setPdfBusy(false);
     }
-  }, [data, pdfBusy]);
+  }, [data, pdfBusy, pid, token]);
 
   if (error) {
     return (

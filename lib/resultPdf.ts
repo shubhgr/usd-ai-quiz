@@ -1,7 +1,6 @@
 import { jsPDF } from "jspdf";
 import { COMPETITION_NAME } from "@/lib/config";
 import { questions } from "@/lib/questions";
-import { isCorrectAnswer } from "@/lib/answerKey";
 
 const C = {
   bg: [255, 255, 255] as const,
@@ -191,9 +190,7 @@ export async function downloadResultPdf(data: ResultPdfInput) {
     const pickedKey = answer?.answer;
     const picked = pickedKey ? pickedKey.toUpperCase() : "None";
 
-    const correct =
-      answer?.isCorrect ??
-      (pickedKey ? isCorrectAnswer(q.id, pickedKey) : undefined);
+    const correct = answer?.isCorrect;
 
     let statusLabel = "Not answered";
     let statusColor: [number, number, number] = [...C.unanswered];

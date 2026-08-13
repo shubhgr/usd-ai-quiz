@@ -1,5 +1,7 @@
-// Server answer key — also used client-side for instant score display.
-// Final leaderboard score is still written by Apps Script on submit.
+import "server-only";
+
+// Answer key stays on the server — never import this from client components.
+// Must match apps-script/Code.gs CORRECT_KEY string.
 export const CORRECT: Record<string, string> = {
   q1: "b",
   q2: "b",
@@ -52,4 +54,16 @@ export function scoreFromAnswerString(answerStr: string): number {
     if (normalized.charAt(i) === CORRECT[ids[i]]) total += 1;
   }
   return total;
+}
+
+/** Per-question correct/wrong map for PDFs (no answer key leaked to client). */
+export function gradeAnswerString(answerStr: string): Record<string, boolean> {
+  const ids = Object.keys(CORRECT);
+  const normalized = answerStr.trim().toLowerCase();
+  const graded: Record<string, boolean> = {};
+  const len = Math.min(normalized.length, ids.length);
+  for (let i = 0; i < len; i += 1) {
+    graded[ids[i]] = normalized.charAt(i) === CORRECT[ids[i]];
+  }
+  return graded;
 }
