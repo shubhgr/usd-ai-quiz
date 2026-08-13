@@ -34,23 +34,27 @@ export async function resolveCredentialsByEmail(
   if (!normalized) return null;
 
   const local = loadSession();
-  if (
-    local &&
-    normalizeEmail(local.email) === normalized &&
-    local.token &&
-    local.score !== null
-  ) {
+  // Prefer local pid/token whenever we have them — don't block on Sheets.
+  // (Framer + background register often hits resume before the row exists.)
+  if (local && normalizeEmail(local.email) === normalized && local.token && local.pid) {
     return {
       pid: local.pid,
       token: local.token,
       name: local.name,
       email: local.email,
-      status: local.completed ? "completed" : local.registered ? "in_progress" : "not_started",
-      score: {
-        totalScore: local.score,
-        completionTimeSeconds: local.completionTimeSeconds ?? 0,
-        completedAt: local.completedAt,
-      },
+      status: local.completed
+        ? "completed"
+        : local.registered
+          ? "in_progress"
+          : "not_started",
+      score:
+        local.score !== null
+          ? {
+              totalScore: local.score,
+              completionTimeSeconds: local.completionTimeSeconds ?? 0,
+              completedAt: local.completedAt,
+            }
+          : null,
       rank: local.rank ?? null,
     };
   }

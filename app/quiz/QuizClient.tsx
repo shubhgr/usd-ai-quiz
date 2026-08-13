@@ -66,6 +66,25 @@ export default function QuizClient({ email }: { email: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Fast path: just registered / continuing in this browser — skip Sheets.
+      const localFirst = loadSession();
+      if (
+        localFirst &&
+        normalizeEmail(localFirst.email) === email &&
+        localFirst.pid &&
+        localFirst.token
+      ) {
+        if (localFirst.completed) {
+          router.replace(linkResults);
+          return;
+        }
+        setPid(localFirst.pid);
+        setToken(localFirst.token);
+        setReady(true);
+        scheduleSync();
+        return;
+      }
+
       const creds = await resolveCredentialsByEmail(email);
       if (cancelled) return;
       if (!creds) {
