@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { saveSession, clearSession } from "@/lib/clientSession";
 import { scheduleSync } from "@/lib/backgroundSync";
@@ -16,9 +15,19 @@ function digitsOnly(value: string, max = PHONE_MAX_DIGITS) {
   return value.replace(/\D/g, "").slice(0, max);
 }
 
-export default function LandingPage() {
-  const router = useRouter();
+/** Soft Next navigations often fail inside Framer iframes — use a full load. */
+function go(path: string) {
+  window.location.assign(path);
+}
 
+async function withTimeout(promise: Promise<unknown>, ms: number) {
+  await Promise.race([
+    promise.catch(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  ]);
+}
+
+export default function LandingPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -38,8 +47,8 @@ export default function LandingPage() {
     e.preventDefault();
     setError("");
 
-    // Best-effort: unlock storage in third-party iframes (Framer) after click.
-    await requestEmbedStorageAccess();
+    // Don't let Storage Access API hang the button in embeds.
+    await withTimeout(requestEmbedStorageAccess(), 400);
 
     const fullName = `${firstName} ${lastName}`.trim();
     const normalizedEmail = email.trim().toLowerCase();
@@ -68,7 +77,7 @@ export default function LandingPage() {
       }
 
       const pid = String(beginData.pid);
-      // Await the sheet write so registration always lands in Sheets.
+      // Sheet write can take ~1–2s; we wait so resume-by-email works after reload.
       const regRes = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,7 +101,6 @@ export default function LandingPage() {
 
       const token = String(regData.token ?? beginData.token);
       const canonicalPid = String(regData.pid ?? pid);
-      // Memory fallback keeps the quiz working inside Framer even without localStorage.
       saveSession({
         pid: canonicalPid,
         token,
@@ -115,11 +123,11 @@ export default function LandingPage() {
       scheduleSync();
 
       if (regData.existing && regData.status === "completed") {
-        router.push(resultsUrl(normalizedEmail));
+        go(resultsUrl(normalizedEmail));
         return;
       }
 
-      router.push(quizUrl(normalizedEmail));
+      go(quizUrl(normalizedEmail));
     } catch {
       const message = "Network error. Please check your connection and try again.";
       setError(message);
@@ -132,7 +140,7 @@ export default function LandingPage() {
   async function handleResume(e: FormEvent) {
     e.preventDefault();
     setResumeError("");
-    await requestEmbedStorageAccess();
+    await withTimeout(requestEmbedStorageAccess(), 400);
     setResumeSubmitting(true);
 
     try {
@@ -152,9 +160,7 @@ export default function LandingPage() {
       clearSession();
       const normalizedEmail = resumeEmail.trim().toLowerCase();
       const page = data.status === "completed" ? "results" : "quiz";
-      router.push(
-        page === "results" ? resultsUrl(normalizedEmail) : quizUrl(normalizedEmail)
-      );
+      go(page === "results" ? resultsUrl(normalizedEmail) : quizUrl(normalizedEmail));
     } catch {
       const message = "Network error. Please check your connection and try again.";
       setResumeError(message);
