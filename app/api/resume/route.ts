@@ -4,20 +4,24 @@ import { gasResume } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
 
 const RESUME_TTL_MS = 60_000;
-const resumeCache = new Map<
-  string,
-  {
-    at: number;
-    body: {
-      pid: string;
-      token: string;
-      name: string;
-      email: string;
-      status: string;
-      lastActivityAt: string | null;
-    };
-  }
->();
+
+interface ResumeBody {
+  pid: string;
+  token: string;
+  name: string;
+  email: string;
+  status: string;
+  lastActivityAt: string | null;
+  answers?: string;
+  score?: {
+    totalScore: number;
+    completionTimeSeconds: number;
+    completedAt: string | null;
+  } | null;
+  rank?: number | null;
+}
+
+const resumeCache = new Map<string, { at: number; body: ResumeBody }>();
 
 async function resumeByEmail(email: string) {
   const normalized =
@@ -36,13 +40,16 @@ async function resumeByEmail(email: string) {
 
   try {
     const existing = await gasResume(normalized);
-    const body = {
+    const body: ResumeBody = {
       pid: existing.pid,
       token: signToken(existing.pid),
       name: existing.name,
       email: existing.email,
       status: existing.status,
       lastActivityAt: existing.lastActivityAt,
+      answers: existing.answers ?? "",
+      score: existing.score ?? null,
+      rank: existing.rank ?? null,
     };
     resumeCache.set(normalized, { at: Date.now(), body });
     return NextResponse.json(body);

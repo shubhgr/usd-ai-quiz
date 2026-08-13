@@ -163,6 +163,43 @@ export default function ResultsClient({ email }: { email: string }) {
       setPid(creds.pid);
       setToken(creds.token);
       persistResolvedCredentials(creds);
+
+      // One Responses-backed resume payload can fill score + rank immediately.
+      if (creds.score) {
+        const preview: ResultsData = {
+          pid: creds.pid,
+          name: creds.name,
+          email: creds.email,
+          status: creds.status,
+          score: {
+            totalScore: creds.score.totalScore,
+            completionTimeSeconds: creds.score.completionTimeSeconds,
+            completedAt:
+              creds.score.completedAt ?? new Date().toISOString(),
+          },
+          answers: {},
+          answeredQuestionIds: [],
+        };
+        if (creds.answers) {
+          const raw = creds.answers.trim().toLowerCase();
+          for (let i = 0; i < raw.length && i < questions.length; i++) {
+            const ch = raw.charAt(i);
+            if (/^[abcd]$/.test(ch)) {
+              const id = questions[i].id;
+              preview.answers[id] = { answer: ch };
+              preview.answeredQuestionIds.push(id);
+            }
+          }
+        }
+        setData((current) => (current?.score ? current : preview));
+        setLocalTimeSeconds(creds.score.completionTimeSeconds);
+        setRevealCard(true);
+      }
+      if (creds.rank) {
+        setRank(creds.rank);
+        setCachedRank(creds.rank);
+      }
+
       setReady(true);
     })();
     return () => {

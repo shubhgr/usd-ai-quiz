@@ -122,6 +122,9 @@ export interface RegistrationInfo {
   status: string;
   registeredAt: string | null;
   lastActivityAt: string | null;
+  answers?: string;
+  score?: ScoreInfo | null;
+  rank?: number | null;
 }
 
 export interface ResponseRow {
@@ -146,6 +149,7 @@ export interface ProgressInfo {
   lastActivityAt: string | null;
   responses: ResponseRow[];
   score: ScoreInfo | null;
+  rank?: number | null;
 }
 
 export interface LeaderboardEntry {
@@ -197,6 +201,14 @@ export async function gasResume(email: string): Promise<RegistrationInfo> {
     ...result,
     registeredAt: toIso(result.registeredAt),
     lastActivityAt: toIso(result.lastActivityAt),
+    score: result.score
+      ? {
+          ...result.score,
+          completedAt: toIso(result.score.completedAt),
+        }
+      : result.score ?? null,
+    rank: result.rank ?? null,
+    answers: result.answers ?? "",
   };
 }
 
@@ -216,6 +228,7 @@ export async function gasGetProgress(pid: string): Promise<ProgressInfo> {
           completedAt: toIso(result.score.completedAt),
         }
       : null,
+    rank: result.rank ?? null,
   };
 }
 

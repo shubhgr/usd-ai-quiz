@@ -1,13 +1,9 @@
 // USD Knowledge Challenge — Google Sheets backend
 //
-// TWO WRITES ONLY:
-//   1. register  → Registration tab (user details)
-//   2. saveAnswers → Responses tab (one answer string + score when done)
+// Registration  → lead capture ONLY (name, email, phone, experience, domain)
+// Responses     → ALL quiz product data (answers, score, time, completedAt)
 //
-// Registration: pid, name, email, phone, workExperience, domain, status,
-//                registeredAt, lastActivityAt, completionTimeSeconds, completedAt
-// Responses:    pid, name, email, answers, score
-//
+// Product reads (resume / progress / leaderboard) use Responses first.
 // Deploy: Deploy > New deployment > Web app
 //   Execute as: Me | Who has access: Anyone
 // Set Script Property API_KEY to match GAS_API_KEY in Next.js (.env.local)
@@ -20,14 +16,18 @@ var REG_HEADERS = [
   "pid", "name", "email", "phone", "workExperience", "domain",
   "status", "registeredAt", "lastActivityAt", "completionTimeSeconds", "completedAt",
 ];
-var RESP_HEADERS = ["pid", "name", "email", "answers", "score"];
+// Product source of truth for quiz UX:
+var RESP_HEADERS = [
+  "pid", "name", "email", "answers", "score",
+  "completionTimeSeconds", "completedAt",
+];
 
 var REG_STATUS = 7;
 var REG_LAST = 9;
-var REG_TIME = 10;
-var REG_COMPLETED = 11;
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
+var RESP_TIME = 6;
+var RESP_COMPLETED = 7;
 
 function doGet(e) {
   return handle(e);
@@ -42,7 +42,7 @@ function handle(e) {
   var action = String(params.action || "");
   var lock = null;
   // Read-only actions skip the exclusive lock so Continue/leaderboard
-  // aren't stuck behind register/saveAnswers (which can take 30s+).
+  // aren't stuck behind register/saveAnswers.
   var needsLock =
     action === "register" ||
     action === "saveAnswers" ||
@@ -109,6 +109,41 @@ function ensureSetup() {
   var resp = ss.getSheetByName("Responses");
   if (!resp) resp = ss.insertSheet("Responses");
   ensureHeader(resp, RESP_HEADERS);
+  backfillResponseTimesFromRegistration(ss);
+}
+
+/** One-time: copy completion time from Registration into Responses for old rows. */
+function backfillResponseTimesFromRegistration(ss) {
+  var respSheet = ss.getSheetByName("Responses");
+  var regSheet = ss.getSheetByName("Registration");
+  if (!respSheet || !regSheet) return;
+  var respLast = respSheet.getLastRow();
+  var regLast = regSheet.getLastRow();
+  if (respLast < 2 || regLast < 2) return;
+
+  var regData = regSheet.getRange(2, 1, regLast - 1, 11).getValues();
+  var regByPid = {};
+  for (var i = 0; i < regData.length; i++) {
+    regByPid[String(regData[i][0])] = regData[i];
+  }
+
+  var respData = respSheet.getRange(2, 1, respLast - 1, RESP_HEADERS.length).getValues();
+  for (var r = 0; r < respData.length; r++) {
+    var row = respData[r];
+    if (!hasScore(row)) continue;
+    var timeEmpty = row[RESP_TIME - 1] === "" || row[RESP_TIME - 1] === null || row[RESP_TIME - 1] === undefined;
+    var completedEmpty = row[RESP_COMPLETED - 1] === "" || row[RESP_COMPLETED - 1] === null || row[RESP_COMPLETED - 1] === undefined;
+    if (!timeEmpty && !completedEmpty) continue;
+    var reg = regByPid[String(row[0])];
+    if (!reg) continue;
+    var sheetRow = r + 2;
+    if (timeEmpty && reg[9] !== "" && reg[9] !== null && reg[9] !== undefined) {
+      respSheet.getRange(sheetRow, RESP_TIME).setValue(Number(reg[9] || 0));
+    }
+    if (completedEmpty && reg[10]) {
+      respSheet.getRange(sheetRow, RESP_COMPLETED).setValue(reg[10]);
+    }
+  }
 }
 
 /** Old deployments used q1..q28 columns. Archive that tab and start fresh. */
@@ -119,8 +154,7 @@ function migrateResponsesSheetIfNeeded(ss) {
   var col4Header = String(resp.getRange(1, 4).getValue()).trim();
   if (col4Header === "answers") return;
 
-  // Old format (q1, q2, …) or unknown — archive so headers stay clean.
-  if (col4Header === "q1" || resp.getLastColumn() > RESP_HEADERS.length) {
+  if (col4Header === "q1" || resp.getLastColumn() > 12) {
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd_HHmmss");
     resp.setName("Responses_old_" + stamp);
   }
@@ -140,11 +174,6 @@ function ensureHeader(sheet, headers) {
   }
   if (!ok) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-  }
-  // Trim stray columns from old layouts (q1..q28 headers left over).
-  var extra = sheet.getLastColumn() - headers.length;
-  if (extra > 0) {
-    sheet.deleteColumns(headers.length + 1, extra);
   }
 }
 
@@ -174,6 +203,10 @@ function findResponseRowByPid(ss, pid) {
   return findRow(ss.getSheetByName("Responses"), 1, pid);
 }
 
+function findResponseRowByEmail(ss, email) {
+  return findRow(ss.getSheetByName("Responses"), 3, email);
+}
+
 function iso(v) {
   try {
     if (v === null || v === undefined || v === "") return null;
@@ -184,12 +217,34 @@ function iso(v) {
   }
 }
 
+function hasScore(values) {
+  var sc = values[RESP_SCORE - 1];
+  return sc !== "" && sc !== null && sc !== undefined;
+}
+
+function scorePayload(values) {
+  if (!hasScore(values)) return null;
+  return {
+    totalScore: Number(values[RESP_SCORE - 1]),
+    completionTimeSeconds: Number(values[RESP_TIME - 1] || 0),
+    completedAt: iso(values[RESP_COMPLETED - 1]),
+  };
+}
+
 function ensureResponseRow(ss, reg) {
   var sheet = ss.getSheetByName("Responses");
   var pid = String(reg.values[0]);
   var resp = findResponseRowByPid(ss, pid);
   if (!resp) {
-    sheet.appendRow([pid, String(reg.values[1]), String(reg.values[2]), "", ""]);
+    sheet.appendRow([
+      pid,
+      String(reg.values[1]),
+      String(reg.values[2]),
+      "",
+      "",
+      "",
+      "",
+    ]);
     resp = findResponseRowByPid(ss, pid);
   }
   return { sheet: sheet, resp: resp };
@@ -237,15 +292,18 @@ function markCompleted(reg, rowInfo, answers) {
   var totalScore = scoreFromAnswers(answers);
   var startedAt = reg.values[7];
   var startMs = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
+  if (isNaN(startMs)) startMs = now.getTime();
   var completionTimeSeconds = Math.max(0, Math.round((now.getTime() - startMs) / 1000));
 
+  // Write ALL quiz completion data to Responses (product source of truth).
   rowInfo.sheet.getRange(rowInfo.resp.row, RESP_SCORE).setValue(totalScore);
+  rowInfo.sheet.getRange(rowInfo.resp.row, RESP_TIME).setValue(completionTimeSeconds);
+  rowInfo.sheet.getRange(rowInfo.resp.row, RESP_COMPLETED).setValue(now);
 
+  // Lead sheet: status only (CRM), not used by quiz UI.
   var rs = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Registration");
   rs.getRange(reg.row, REG_STATUS).setValue("completed");
   rs.getRange(reg.row, REG_LAST).setValue(now);
-  rs.getRange(reg.row, REG_TIME).setValue(completionTimeSeconds);
-  rs.getRange(reg.row, REG_COMPLETED).setValue(now);
 
   return {
     ok: true,
@@ -256,6 +314,50 @@ function markCompleted(reg, rowInfo, answers) {
   };
 }
 
+/** Build ranked entries from Responses only (one sheet read). */
+function buildLeaderboardEntries(ss) {
+  var respSheet = ss.getSheetByName("Responses");
+  var respLast = respSheet.getLastRow();
+  if (respLast < 2) return [];
+
+  var respRows = respLast - 1;
+  var respData = respSheet.getRange(2, 1, respRows, RESP_HEADERS.length).getValues();
+  var entries = [];
+
+  for (var i = 0; i < respData.length; i++) {
+    var r = respData[i];
+    if (!hasScore(r)) continue;
+    entries.push({
+      pid: String(r[0]),
+      name: String(r[1]),
+      email: String(r[2] || "").toLowerCase(),
+      totalScore: Number(r[RESP_SCORE - 1]),
+      completionTimeSeconds: Number(r[RESP_TIME - 1] || 0),
+      completedAt: iso(r[RESP_COMPLETED - 1]),
+    });
+  }
+
+  entries.sort(function (a, b) {
+    if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
+    if (a.completionTimeSeconds !== b.completionTimeSeconds) {
+      return a.completionTimeSeconds - b.completionTimeSeconds;
+    }
+    if ((a.completedAt || "") < (b.completedAt || "")) return -1;
+    if ((a.completedAt || "") > (b.completedAt || "")) return 1;
+    return 0;
+  });
+
+  return entries;
+}
+
+function findRank(entries, pid, email) {
+  for (var j = 0; j < entries.length; j++) {
+    if (pid && entries[j].pid === pid) return j + 1;
+    if (email && entries[j].email === email) return j + 1;
+  }
+  return null;
+}
+
 // ---- Actions ----
 
 function actionRegister(params) {
@@ -264,6 +366,24 @@ function actionRegister(params) {
   var email = String(params.email || "").trim().toLowerCase();
   if (!pid || !email) {
     return { ok: false, code: "BAD_REQUEST", error: "pid and email are required" };
+  }
+
+  // If they already finished, prefer Responses (product data).
+  var existingResp = findResponseRowByEmail(ss, email);
+  if (existingResp && hasScore(existingResp.values)) {
+    var entries = buildLeaderboardEntries(ss);
+    return {
+      ok: true,
+      existing: true,
+      pid: String(existingResp.values[0]),
+      name: String(existingResp.values[1]),
+      email: email,
+      status: "completed",
+      score: scorePayload(existingResp.values),
+      rank: findRank(entries, String(existingResp.values[0]), email),
+      registeredAt: null,
+      lastActivityAt: iso(existingResp.values[RESP_COMPLETED - 1]),
+    };
   }
 
   var existing = findRegistrationByEmail(ss, email);
@@ -310,6 +430,32 @@ function actionResume(params) {
   var email = String(params.email || "").trim().toLowerCase();
   if (!email) return { ok: false, code: "BAD_REQUEST", error: "Email is required" };
 
+  // Product path: Responses first (score + time + rank in one sheet pass).
+  var resp = findResponseRowByEmail(ss, email);
+  if (resp) {
+    var answerStr = normalizeAnswers(resp.values[RESP_ANSWERS - 1]);
+    var score = scorePayload(resp.values);
+    var status = score ? "completed" : answerStr ? "in_progress" : "not_started";
+    var entries = score ? buildLeaderboardEntries(ss) : [];
+    var rank = score ? findRank(entries, String(resp.values[0]), email) : null;
+
+    return {
+      ok: true,
+      pid: String(resp.values[0]),
+      name: String(resp.values[1]),
+      email: email,
+      status: status,
+      answers: answerStr,
+      score: score,
+      rank: rank,
+      registeredAt: null,
+      lastActivityAt: score
+        ? iso(resp.values[RESP_COMPLETED - 1])
+        : null,
+    };
+  }
+
+  // Lead-only: registered but never answered — still need pid to continue quiz.
   var found = findRegistrationByEmail(ss, email);
   if (!found) {
     return { ok: false, code: "NOT_FOUND", error: "No registration found for this email." };
@@ -320,7 +466,10 @@ function actionResume(params) {
     pid: String(found.values[0]),
     name: String(found.values[1]),
     email: String(found.values[2]),
-    status: String(found.values[6]),
+    status: String(found.values[6] || "not_started"),
+    answers: "",
+    score: null,
+    rank: null,
     registeredAt: iso(found.values[7]),
     lastActivityAt: iso(found.values[8]),
   };
@@ -331,26 +480,28 @@ function actionGetProgress(params) {
   var pid = String(params.pid || "");
   if (!pid) return { ok: false, code: "BAD_REQUEST", error: "pid is required" };
 
-  var reg = findRegistrationByPid(ss, pid);
-  if (!reg) return { ok: false, code: "NOT_FOUND", error: "Participant not found" };
-
-  var responses = [];
-  var score = null;
   var resp = findResponseRowByPid(ss, pid);
-
   if (resp) {
     var answerStr = normalizeAnswers(resp.values[RESP_ANSWERS - 1]);
-    responses = responsesFromString(answerStr);
-
-    var sc = resp.values[RESP_SCORE - 1];
-    if (sc !== "" && sc !== null && sc !== undefined) {
-      score = {
-        totalScore: Number(sc),
-        completionTimeSeconds: Number(reg.values[REG_TIME - 1] || 0),
-        completedAt: iso(reg.values[REG_COMPLETED - 1]),
-      };
-    }
+    var score = scorePayload(resp.values);
+    var status = score ? "completed" : answerStr ? "in_progress" : "not_started";
+    var entries = score ? buildLeaderboardEntries(ss) : [];
+    return {
+      ok: true,
+      pid: pid,
+      name: String(resp.values[1]),
+      email: String(resp.values[2]),
+      status: status,
+      registeredAt: null,
+      lastActivityAt: score ? iso(resp.values[RESP_COMPLETED - 1]) : null,
+      responses: responsesFromString(answerStr),
+      score: score,
+      rank: score ? findRank(entries, pid, String(resp.values[2] || "").toLowerCase()) : null,
+    };
   }
+
+  var reg = findRegistrationByPid(ss, pid);
+  if (!reg) return { ok: false, code: "NOT_FOUND", error: "Participant not found" };
 
   return {
     ok: true,
@@ -360,8 +511,9 @@ function actionGetProgress(params) {
     status: String(reg.values[6]),
     registeredAt: iso(reg.values[7]),
     lastActivityAt: iso(reg.values[8]),
-    responses: responses,
-    score: score,
+    responses: [],
+    score: null,
+    rank: null,
   };
 }
 
@@ -377,13 +529,17 @@ function actionSaveAnswers(params) {
 
   var reg = findRegistrationByPid(ss, pid);
   if (!reg) return { ok: false, code: "NOT_FOUND", error: "Participant not found" };
-  if (String(reg.values[6]) === "completed") {
+
+  var existingResp = findResponseRowByPid(ss, pid);
+  if (existingResp && hasScore(existingResp.values)) {
     return { ok: false, code: "ALREADY_COMPLETED", error: "Quiz already completed" };
   }
 
   var rowInfo = ensureResponseRow(ss, reg);
   var now = new Date();
   rowInfo.sheet.getRange(rowInfo.resp.row, RESP_ANSWERS).setValue(answers);
+  rowInfo.sheet.getRange(rowInfo.resp.row, 2).setValue(String(reg.values[1]));
+  rowInfo.sheet.getRange(rowInfo.resp.row, 3).setValue(String(reg.values[2]));
 
   var rs = ss.getSheetByName("Registration");
   rs.getRange(reg.row, REG_STATUS).setValue("in_progress");
@@ -405,6 +561,8 @@ function actionClearResponses(params) {
     var sheet = ss.getSheetByName("Responses");
     sheet.getRange(resp.row, RESP_ANSWERS).setValue("");
     sheet.getRange(resp.row, RESP_SCORE).setValue("");
+    sheet.getRange(resp.row, RESP_TIME).setValue("");
+    sheet.getRange(resp.row, RESP_COMPLETED).setValue("");
   }
 
   var reg = findRegistrationByPid(ss, pid);
@@ -412,8 +570,6 @@ function actionClearResponses(params) {
     var rs = ss.getSheetByName("Registration");
     rs.getRange(reg.row, REG_STATUS).setValue("not_started");
     rs.getRange(reg.row, REG_LAST).setValue(new Date());
-    rs.getRange(reg.row, REG_TIME).setValue("");
-    rs.getRange(reg.row, REG_COMPLETED).setValue("");
   }
 
   return { ok: true };
@@ -428,14 +584,14 @@ function actionSubmit(params) {
   var resp = findResponseRowByPid(ss, pid);
   if (!resp) return { ok: false, code: "INCOMPLETE", error: "Not all questions have been answered" };
 
-  var sc = resp.values[RESP_SCORE - 1];
-  if (String(reg.values[6]) === "completed" && sc !== "" && sc !== null && sc !== undefined) {
+  if (hasScore(resp.values)) {
+    var scored = scorePayload(resp.values);
     return {
       ok: true,
       alreadyCompleted: true,
-      totalScore: Number(sc),
-      completionTimeSeconds: Number(reg.values[REG_TIME - 1] || 0),
-      completedAt: iso(reg.values[REG_COMPLETED - 1]),
+      totalScore: scored.totalScore,
+      completionTimeSeconds: scored.completionTimeSeconds,
+      completedAt: scored.completedAt,
     };
   }
 
@@ -453,67 +609,30 @@ function actionSubmit(params) {
 function actionLeaderboard(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pid = String(params.pid || "");
+  var email = String(params.email || "").trim().toLowerCase();
   var limit = Math.min(100, Math.max(1, Math.trunc(Number(params.limit || 20))));
 
-  var respSheet = ss.getSheetByName("Responses");
-  var regSheet = ss.getSheetByName("Registration");
-  var respLast = respSheet.getLastRow();
-  if (respLast < 2) {
-    return { ok: true, topEntries: [], me: null };
-  }
-
-  var respRows = respLast - 1;
-  var respData = respSheet.getRange(2, 1, respRows, 5).getValues();
-
-  var regByPid = {};
-  var regLast = regSheet.getLastRow();
-  if (regLast >= 2) {
-    var regData = regSheet.getRange(2, 1, regLast - 1, 11).getValues();
-    for (var i = 0; i < regData.length; i++) {
-      regByPid[String(regData[i][0])] = regData[i];
-    }
-  }
-
-  var entries = [];
-  for (var i = 0; i < respData.length; i++) {
-    var r = respData[i];
-    var sc = r[RESP_SCORE - 1];
-    if (sc === "" || sc === null || sc === undefined) continue;
-    var reg = regByPid[String(r[0])] || null;
-    entries.push({
-      pid: String(r[0]),
-      name: String(r[1]),
-      totalScore: Number(sc),
-      completionTimeSeconds: reg ? Number(reg[REG_TIME - 1] || 0) : 0,
-      completedAt: reg ? iso(reg[REG_COMPLETED - 1]) : null,
-    });
-  }
-
-  entries.sort(function (a, b) {
-    if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
-    if (a.completionTimeSeconds !== b.completionTimeSeconds) {
-      return a.completionTimeSeconds - b.completionTimeSeconds;
-    }
-    if (a.completedAt < b.completedAt) return -1;
-    if (a.completedAt > b.completedAt) return 1;
-    return 0;
+  var entries = buildLeaderboardEntries(ss);
+  var topEntries = entries.slice(0, limit).map(function (e) {
+    return {
+      pid: e.pid,
+      name: e.name,
+      totalScore: e.totalScore,
+      completionTimeSeconds: e.completionTimeSeconds,
+      completedAt: e.completedAt,
+    };
   });
 
-  var topEntries = entries.slice(0, limit);
   var me = null;
-  if (pid) {
-    for (var j = 0; j < entries.length; j++) {
-      if (entries[j].pid === pid) {
-        var e = entries[j];
-        me = {
-          rank: j + 1,
-          totalScore: e.totalScore,
-          completionTimeSeconds: e.completionTimeSeconds,
-          completedAt: e.completedAt,
-        };
-        break;
-      }
-    }
+  var rank = findRank(entries, pid, email);
+  if (rank) {
+    var e = entries[rank - 1];
+    me = {
+      rank: rank,
+      totalScore: e.totalScore,
+      completionTimeSeconds: e.completionTimeSeconds,
+      completedAt: e.completedAt,
+    };
   }
 
   return { ok: true, topEntries: topEntries, me: me };

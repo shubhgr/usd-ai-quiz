@@ -240,6 +240,12 @@ export default function LandingPage() {
         email?: string;
         status?: string;
         error?: string;
+        rank?: number | null;
+        score?: {
+          totalScore: number;
+          completionTimeSeconds: number;
+          completedAt: string | null;
+        } | null;
       }>("/api/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -271,9 +277,10 @@ export default function LandingPage() {
           syncedAnswerString: "",
           completed: res.data.status === "completed",
           submitted: res.data.status === "completed",
-          score: null,
-          completionTimeSeconds: null,
-          completedAt: null,
+          score: res.data.score?.totalScore ?? null,
+          completionTimeSeconds: res.data.score?.completionTimeSeconds ?? null,
+          completedAt: res.data.score?.completedAt ?? null,
+          rank: res.data.rank ?? null,
         });
       }
 
