@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import LeaderboardView from "@/components/LeaderboardView";
-import { normalizeEmail, resultsUrl } from "@/lib/quizUrls";
+import { normalizeEmail } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
 import { loadSession, saveSession } from "@/lib/clientSession";
 import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
@@ -36,7 +36,6 @@ function LeaderboardShell({
   myName = "",
   myScore = null,
   pendingName = "",
-  backHref = "",
 }: {
   loading?: boolean;
   rows?: LeaderboardRow[];
@@ -45,7 +44,6 @@ function LeaderboardShell({
   myName?: string;
   myScore?: number | null;
   pendingName?: string;
-  backHref?: string;
 }) {
   return (
     <main className="lb-page relative flex w-full flex-1 flex-col">
@@ -57,7 +55,6 @@ function LeaderboardShell({
         myScore={myScore}
         pendingName={pendingName}
         loading={loading}
-        backHref={backHref}
       />
     </main>
   );
@@ -83,7 +80,6 @@ export default function LeaderboardPage() {
 function Leaderboard() {
   const searchParams = useSearchParams();
   const email = normalizeEmail(searchParams.get("email") ?? "");
-  const backHref = email ? resultsUrl(email) : "/";
   const cached = readInitialCache();
 
   const [pid, setPid] = useState("");
@@ -225,7 +221,6 @@ function Leaderboard() {
         myScore={myScore}
         pendingName={pendingName}
         loading={loading && !ready && rows.length === 0}
-        backHref={backHref}
       />
     </main>
   );

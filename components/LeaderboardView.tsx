@@ -45,7 +45,6 @@ interface LeaderboardViewProps {
   myScore?: number | null;
   pendingName?: string;
   loading?: boolean;
-  backHref?: string;
 }
 
 function SkeletonPodium() {
@@ -93,7 +92,6 @@ export default function LeaderboardView({
   myScore = null,
   pendingName,
   loading = false,
-  backHref = "",
 }: LeaderboardViewProps) {
   const youRef = useRef<HTMLLIElement | null>(null);
   const topThree = rows.slice(0, 3);
@@ -125,14 +123,6 @@ export default function LeaderboardView({
 
   return (
     <div className="lb-page w-full" aria-busy={loading || undefined}>
-      {backHref ? (
-        <div className="lb-nav">
-          <a href={backHref} className="lb-back">
-            ← Back to results
-          </a>
-        </div>
-      ) : null}
-
       {showSkeleton ? (
         <SkeletonPodium />
       ) : topThree.length > 0 ? (
