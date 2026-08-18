@@ -1,6 +1,7 @@
 # USD Knowledge Challenge
 
-Next.js quiz app with Google Sheets backend, downloadable results PDF, and a live leaderboard.
+Next.js quiz app with downloadable results PDF and a live leaderboard.
+Data is stored in Postgres (Neon) and can fall back to Google Sheets/Apps Script.
 
 ## Getting Started
 
@@ -59,3 +60,17 @@ Users do **not** need to leave your site. The quiz runs inside the iframe.
 If the browser blocks `localStorage` in the iframe, the app keeps the session **in memory** for that visit and still saves registration/answers to the server. If someone refreshes mid-quiz, they can continue with **Already registered?** and their email.
 
 Framer tip: use a full-height embed and avoid a restrictive `sandbox` on the iframe.
+
+## Postgres (Neon) setup
+1. Create/initialize a Neon Postgres database.
+2. Copy your connection string into `.env.local` as `DATABASE_URL`.
+   - Must include `sslmode=require` (Neon requires SSL).
+3. Create the schema:
+   - `psql "$DATABASE_URL" -f scripts/db/init.sql`
+   - Or open `scripts/db/init.sql` in the Neon SQL editor and run it.
+
+Once `DATABASE_URL` is set, the backend uses Postgres-first for:
+- `/api/register`
+- `/api/resume`
+- `/api/progress` (GET + POST)
+- `/api/leaderboard` and `/api/standings`

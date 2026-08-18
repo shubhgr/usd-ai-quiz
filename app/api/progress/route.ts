@@ -2,14 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { RESTART_AFTER_DAYS } from "@/lib/config";
 import { questions } from "@/lib/questions";
-import { isCorrectAnswer } from "@/lib/answerKey";
+import { isCorrectAnswer, scoreFromAnswerString } from "@/lib/answerKey";
+import { hasDatabaseUrl, query } from "@/lib/db";
 import {
   gasGetProgress,
   gasSaveAnswers,
   gasClearResponses,
+  gasSubmit,
   type ProgressInfo,
 } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
+import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
 
 function unauthorized() {
   return NextResponse.json(
@@ -26,6 +29,133 @@ async function fetchProgress(pid: string): Promise<{
   progress: ProgressInfo;
   restarted: boolean;
 }> {
+  // Postgres-first path for fast reads (no Apps Script round-trips).
+  if (hasDatabaseUrl()) {
+    const now = new Date();
+    const load = async () => {
+      const rows = await query<{
+        pid: string;
+        name: string;
+        email: string;
+        status: string;
+        last_activity_at: string | null;
+        answers: string;
+        score: number | null;
+        completion_time_seconds: number | null;
+        completed_at: string | null;
+        registered_at: string | null;
+      }>(
+        `SELECT
+           p.pid,
+           p.name,
+           p.email,
+           p.status,
+           p.last_activity_at,
+           p.registered_at,
+           a.answers,
+           a.score,
+           a.completion_time_seconds,
+           a.completed_at
+         FROM participants p
+         JOIN attempts a ON a.pid = p.pid
+         WHERE p.pid = $1
+         LIMIT 1`,
+        [pid]
+      );
+
+      if (!rows.length) {
+        return null;
+      }
+
+      const r = rows[0]!;
+      const answerStr = r.answers ?? "";
+      const completedAtIso = r.completed_at
+        ? new Date(r.completed_at).toISOString()
+        : null;
+      const scoreObj =
+        r.score !== null && r.completion_time_seconds !== null
+          ? {
+              totalScore: Number(r.score),
+              completionTimeSeconds: Number(r.completion_time_seconds),
+              completedAt: completedAtIso,
+            }
+          : null;
+
+      const computedStatus = scoreObj
+        ? "completed"
+        : answerStr
+          ? "in_progress"
+          : "not_started";
+
+      // Match the existing UI expectation: in `progress GET`, we return
+      // isCorrect only when the participant is completed.
+      const responses: ProgressInfo["responses"] = [];
+      const len = Math.min(answerStr.length, questions.length);
+      for (let i = 0; i < len; i++) {
+        const questionId = `q${i + 1}`;
+        responses.push({
+          questionId,
+          answer: answerStr.charAt(i),
+          answeredAt: null,
+        });
+      }
+
+      const progress: ProgressInfo = {
+        ok: true,
+        pid: r.pid,
+        name: r.name,
+        email: r.email,
+        status: computedStatus,
+        registeredAt: r.registered_at
+          ? new Date(r.registered_at).toISOString()
+          : null,
+        lastActivityAt:
+          computedStatus === "completed" ? completedAtIso : r.last_activity_at ? new Date(r.last_activity_at).toISOString() : null,
+        responses,
+        score: scoreObj,
+        rank: null,
+      };
+
+      return progress;
+    };
+
+    let progress = await load();
+    if (!progress) throw new Error("NOT_FOUND");
+
+    let restarted = false;
+    const last = progress.lastActivityAt
+      ? new Date(progress.lastActivityAt).getTime()
+      : Date.now();
+    const daysSinceLastActivity = Math.floor((Date.now() - last) / 86_400_000);
+
+    if (progress.status === "in_progress" && daysSinceLastActivity > RESTART_AFTER_DAYS) {
+      await query(
+        `UPDATE attempts
+           SET answers = '',
+               score = NULL,
+               completion_time_seconds = NULL,
+               completed_at = NULL,
+               updated_at = $2
+         WHERE pid = $1`,
+        [pid, now.toISOString()]
+      );
+      await query(
+        `UPDATE participants
+           SET status = 'not_started',
+               last_activity_at = $2
+         WHERE pid = $1`,
+        [pid, now.toISOString()]
+      );
+
+      progress = await load();
+      if (!progress) throw new Error("NOT_FOUND_AFTER_RESTART");
+      restarted = true;
+    }
+
+    return { progress, restarted };
+  }
+
+  // Legacy Sheets path.
   let progress = await gasGetProgress(pid);
   let restarted = false;
 
@@ -123,6 +253,67 @@ export async function POST(request: Request) {
   }
   if (!/^[abcd]+$/.test(normalized)) {
     return NextResponse.json({ error: "Invalid answer string" }, { status: 400 });
+  }
+
+  // Postgres-first path.
+  if (hasDatabaseUrl()) {
+    const now = new Date();
+
+    const pidRow = await query<{ registered_at: string | null }>(
+      "SELECT registered_at FROM participants WHERE pid = $1 LIMIT 1",
+      [pid]
+    );
+    if (!pidRow.length) return notFound();
+
+    const registeredAt = pidRow[0]!.registered_at
+      ? new Date(pidRow[0]!.registered_at!).getTime()
+      : now.getTime();
+
+    const completed = normalized.length === questions.length;
+    const score = completed ? scoreFromAnswerString(normalized) : null;
+    const completionTimeSeconds = completed
+      ? Math.max(0, Math.round((now.getTime() - registeredAt) / 1000))
+      : null;
+    const completedAtIso = completed ? now.toISOString() : null;
+
+    await query(
+      `INSERT INTO attempts(pid, answers, score, completion_time_seconds, completed_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (pid)
+       DO UPDATE SET
+         answers = EXCLUDED.answers,
+         score = EXCLUDED.score,
+         completion_time_seconds = EXCLUDED.completion_time_seconds,
+         completed_at = EXCLUDED.completed_at,
+         updated_at = now()`,
+      [pid, normalized, score, completionTimeSeconds, completedAtIso]
+    );
+
+    await query(
+      `UPDATE participants
+         SET status = $2,
+             last_activity_at = $3
+       WHERE pid = $1`,
+      [pid, completed ? "completed" : "in_progress", now.toISOString()]
+    );
+
+    // Background mirror: write the same progress into Google Sheets via Apps Script.
+    // Never block UI; ignore failures so Postgres-first remains fast.
+    void gasSaveAnswers({ pid, answers: normalized }).catch(() => {});
+    if (completed) void gasSubmit(pid).catch(() => {});
+
+    if (completed) {
+      invalidateLeaderboardCache();
+      return NextResponse.json({
+        ok: true,
+        completed: true,
+        totalScore: score as number,
+        completionTimeSeconds: completionTimeSeconds as number,
+        completedAt: completedAtIso,
+      });
+    }
+
+    return NextResponse.json({ ok: true });
   }
 
   try {
