@@ -37,9 +37,34 @@ export default function QuizClient({ email }: { email: string }) {
   const router = useRouter();
   const linkResults = resultsUrl(email);
 
-  const [pid, setPid] = useState("");
-  const [token, setToken] = useState("");
-  const [ready, setReady] = useState(false);
+  const [pid, setPid] = useState(() => {
+    const session = loadSession();
+    return session &&
+      normalizeEmail(session.email) === email &&
+      !session.completed
+      ? session.pid
+      : "";
+  });
+  const [token, setToken] = useState(() => {
+    const session = loadSession();
+    return session &&
+      normalizeEmail(session.email) === email &&
+      !session.completed
+      ? session.token
+      : "";
+  });
+  // Questions ship with the client — show them immediately when we already
+  // have a local in-progress session (no network wait).
+  const [ready, setReady] = useState(() => {
+    const session = loadSession();
+    return Boolean(
+      session &&
+        normalizeEmail(session.email) === email &&
+        session.pid &&
+        session.token &&
+        !session.completed
+    );
+  });
   const [error, setError] = useState("");
   const [restartNotice, setRestartNotice] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>(() => {
@@ -65,23 +90,47 @@ export default function QuizClient({ email }: { email: string }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    const goResults = () => {
+      // Hard navigation so the quiz UI never sticks for completed attempts.
+      window.location.replace(linkResults);
+    };
+
     (async () => {
-      // Fast path: just registered / continuing in this browser — skip Sheets.
       const localFirst = loadSession();
       if (
         localFirst &&
         normalizeEmail(localFirst.email) === email &&
-        localFirst.pid &&
-        localFirst.token
+        localFirst.completed
       ) {
-        if (localFirst.completed) {
-          router.replace(linkResults);
-          return;
-        }
+        goResults();
+        return;
+      }
+
+      // Local in-progress: questions are already on screen. Confirm completion
+      // in the background and redirect only if the server says finished.
+      if (
+        localFirst &&
+        normalizeEmail(localFirst.email) === email &&
+        localFirst.pid &&
+        localFirst.token &&
+        !localFirst.completed
+      ) {
         setPid(localFirst.pid);
         setToken(localFirst.token);
         setReady(true);
         scheduleSync();
+
+        try {
+          const creds = await resolveCredentialsByEmail(email);
+          if (cancelled) return;
+          if (creds?.status === "completed") {
+            persistResolvedCredentials(creds);
+            goResults();
+          }
+        } catch {
+          // Stay on quiz with local session.
+        }
         return;
       }
 
@@ -92,15 +141,27 @@ export default function QuizClient({ email }: { email: string }) {
         return;
       }
 
+      if (creds.status === "completed") {
+        persistResolvedCredentials(creds);
+        goResults();
+        return;
+      }
+
       setPid(creds.pid);
       setToken(creds.token);
       persistResolvedCredentials(creds);
 
       const local = loadSession();
-      if (local && normalizeEmail(local.email) === email) {
-        if (local.completed) {
-          router.replace(linkResults);
-          return;
+      if (local && normalizeEmail(local.email) === email && local.completed) {
+        goResults();
+        return;
+      }
+
+      if (local && normalizeEmail(local.email) === email && local.pid && local.token) {
+        setPid(local.pid);
+        setToken(local.token);
+        if (Object.keys(local.answers).length > 0) {
+          setAnswers(local.answers);
         }
         setReady(true);
         scheduleSync();
@@ -110,6 +171,9 @@ export default function QuizClient({ email }: { email: string }) {
       if (local && normalizeEmail(local.email) !== email) {
         clearSession();
       }
+
+      // Show questions immediately — hydrate saved answers from progress after.
+      setReady(true);
 
       try {
         const res = await fetch(
@@ -122,8 +186,19 @@ export default function QuizClient({ email }: { email: string }) {
         }
         if (cancelled) return;
 
-        if (data.status === "completed" && data.score) {
-          router.replace(linkResults);
+        if (data.status === "completed") {
+          persistResolvedCredentials({
+            ...creds,
+            status: "completed",
+            score: data.score
+              ? {
+                  totalScore: data.score.totalScore,
+                  completionTimeSeconds: data.score.completionTimeSeconds,
+                  completedAt: data.score.completedAt,
+                }
+              : creds.score,
+          });
+          goResults();
           return;
         }
 
@@ -141,20 +216,24 @@ export default function QuizClient({ email }: { email: string }) {
           phone: "",
           workExperience: "",
           domain: "",
+          linkedinUrl: "",
+          bestDescribeYou: "",
+          considerMasters: "",
+          planningYear: "",
+          interestsMost: "",
           registeredAt: data.lastActivityAt
             ? new Date(data.lastActivityAt).getTime()
             : Date.now(),
           registered: true,
           answers: savedAnswers,
           syncedAnswerString: allAnswersString(savedAnswers),
-          completed: data.status === "completed",
-          submitted: data.status === "completed",
+          completed: false,
+          submitted: false,
           score: data.score?.totalScore ?? null,
           completionTimeSeconds: data.score?.completionTimeSeconds ?? null,
           completedAt: data.score?.completedAt ?? null,
         });
         setAnswers(savedAnswers);
-        setReady(true);
         scheduleSync();
       } catch {
         if (!cancelled) setError("Network error. Please refresh to retry.");
@@ -163,7 +242,7 @@ export default function QuizClient({ email }: { email: string }) {
     return () => {
       cancelled = true;
     };
-  }, [email, router, linkResults]);
+  }, [email, linkResults]);
 
   useEffect(() => {
     if (!ready || !firstUnansweredRef.current) return;
@@ -202,6 +281,11 @@ export default function QuizClient({ email }: { email: string }) {
       phone: session?.phone ?? "",
       workExperience: session?.workExperience ?? "",
       domain: session?.domain ?? "",
+      linkedinUrl: session?.linkedinUrl ?? "",
+      bestDescribeYou: session?.bestDescribeYou ?? "",
+      considerMasters: session?.considerMasters ?? "",
+      planningYear: session?.planningYear ?? "",
+      interestsMost: session?.interestsMost ?? "",
       registeredAt,
       registered: session?.registered ?? false,
       answers,
@@ -268,6 +352,11 @@ export default function QuizClient({ email }: { email: string }) {
           phone: "",
           workExperience: "",
           domain: "",
+          linkedinUrl: "",
+          bestDescribeYou: "",
+          considerMasters: "",
+          planningYear: "",
+          interestsMost: "",
           registeredAt: Date.now(),
           registered: false,
           answers: nextAnswers,
@@ -305,7 +394,7 @@ export default function QuizClient({ email }: { email: string }) {
   if (!ready) {
     return (
       <main className="flex flex-1 items-center justify-center px-6 py-16 text-slate-400">
-        Loading your quiz…
+        Loading…
       </main>
     );
   }

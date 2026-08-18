@@ -1,6 +1,6 @@
 // USD Knowledge Challenge — Google Sheets backend
 //
-// Registration  → lead capture ONLY (name, email, phone, experience, domain)
+// Registration  → lead capture ONLY (name, email, phone + lead-gen fields)
 // Responses     → ALL quiz product data (answers, score, time, completedAt)
 //
 // Product reads (resume / progress / leaderboard) use Responses first.
@@ -13,8 +13,22 @@ var TOTAL_QUESTIONS = 28;
 var CORRECT_KEY = "bbbbbbbabbbbbbbbbabbbbbbbbbb";
 
 var REG_HEADERS = [
-  "pid", "name", "email", "phone", "workExperience", "domain",
-  "status", "registeredAt", "lastActivityAt", "completionTimeSeconds", "completedAt",
+  "pid",
+  "name",
+  "email",
+  "phone",
+  "workExperience",
+  "domain",
+  "linkedinUrl",
+  "bestDescribeYou",
+  "considerMasters",
+  "planningYear",
+  "interestsMost",
+  "status",
+  "registeredAt",
+  "lastActivityAt",
+  "completionTimeSeconds",
+  "completedAt",
 ];
 // Product source of truth for quiz UX:
 var RESP_HEADERS = [
@@ -22,8 +36,10 @@ var RESP_HEADERS = [
   "completionTimeSeconds", "completedAt",
 ];
 
-var REG_STATUS = 7;
-var REG_LAST = 9;
+// Column indexes are 1-based for getRange/setValue.
+var REG_STATUS = 12; // status
+var REG_REGISTERED_AT = 13; // registeredAt
+var REG_LAST = 14; // lastActivityAt
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
 var RESP_TIME = 6;
@@ -290,7 +306,7 @@ function responsesFromString(answerStr) {
 function markCompleted(reg, rowInfo, answers) {
   var now = new Date();
   var totalScore = scoreFromAnswers(answers);
-  var startedAt = reg.values[7];
+  var startedAt = reg.values[REG_REGISTERED_AT - 1];
   var startMs = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
   if (isNaN(startMs)) startMs = now.getTime();
   var completionTimeSeconds = Math.max(0, Math.round((now.getTime() - startMs) / 1000));
@@ -394,9 +410,9 @@ function actionRegister(params) {
       pid: String(existing.values[0]),
       name: String(existing.values[1]),
       email: String(existing.values[2]),
-      status: String(existing.values[6]),
-      registeredAt: iso(existing.values[7]),
-      lastActivityAt: iso(existing.values[8]),
+      status: String(existing.values[REG_STATUS - 1]),
+      registeredAt: iso(existing.values[REG_REGISTERED_AT - 1]),
+      lastActivityAt: iso(existing.values[REG_LAST - 1]),
     };
   }
 
@@ -408,9 +424,16 @@ function actionRegister(params) {
     String(params.phone || ""),
     String(params.workExperience || ""),
     String(params.domain || ""),
+    String(params.linkedinUrl || ""),
+    String(params.bestDescribeYou || ""),
+    String(params.considerMasters || ""),
+    String(params.planningYear || ""),
+    String(params.interestsMost || ""),
     "not_started",
     now,
     now,
+    "",
+    "",
   ]);
 
   return {
@@ -466,12 +489,12 @@ function actionResume(params) {
     pid: String(found.values[0]),
     name: String(found.values[1]),
     email: String(found.values[2]),
-    status: String(found.values[6] || "not_started"),
+    status: String(found.values[REG_STATUS - 1] || "not_started"),
     answers: "",
     score: null,
     rank: null,
-    registeredAt: iso(found.values[7]),
-    lastActivityAt: iso(found.values[8]),
+    registeredAt: iso(found.values[REG_REGISTERED_AT - 1]),
+    lastActivityAt: iso(found.values[REG_LAST - 1]),
   };
 }
 
@@ -508,9 +531,9 @@ function actionGetProgress(params) {
     pid: pid,
     name: String(reg.values[1]),
     email: String(reg.values[2]),
-    status: String(reg.values[6]),
-    registeredAt: iso(reg.values[7]),
-    lastActivityAt: iso(reg.values[8]),
+    status: String(reg.values[REG_STATUS - 1]),
+    registeredAt: iso(reg.values[REG_REGISTERED_AT - 1]),
+    lastActivityAt: iso(reg.values[REG_LAST - 1]),
     responses: [],
     score: null,
     rank: null,

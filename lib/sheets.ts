@@ -178,6 +178,11 @@ export async function gasRegister(params: {
   phone: string;
   workExperience?: string;
   domain?: string;
+  linkedinUrl?: string;
+  bestDescribeYou?: string;
+  considerMasters?: string;
+  planningYear?: string;
+  interestsMost?: string;
 }): Promise<RegistrationInfo & { existing: boolean }> {
   const result = await gas<RegistrationInfo & { existing: boolean }>({
     action: "register",
@@ -187,6 +192,11 @@ export async function gasRegister(params: {
     phone: params.phone,
     workExperience: params.workExperience ?? "",
     domain: params.domain ?? "",
+    linkedinUrl: params.linkedinUrl ?? "",
+    bestDescribeYou: params.bestDescribeYou ?? "",
+    considerMasters: params.considerMasters ?? "",
+    planningYear: params.planningYear ?? "",
+    interestsMost: params.interestsMost ?? "",
   });
   return {
     ...result,

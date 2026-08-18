@@ -6,6 +6,11 @@ export interface LocalSession {
   phone: string;
   workExperience: string;
   domain: string;
+  linkedinUrl: string;
+  bestDescribeYou: string;
+  considerMasters: string;
+  planningYear: string;
+  interestsMost: string;
   registeredAt: number | null;
   registered: boolean;
   answers: Record<string, string>;
@@ -31,6 +36,11 @@ function normalize(session: LocalSession): LocalSession {
     registered: session.registered ?? false,
     syncedAnswerString: session.syncedAnswerString ?? "",
     rank: session.rank ?? null,
+    linkedinUrl: session.linkedinUrl ?? "",
+    bestDescribeYou: session.bestDescribeYou ?? "",
+    considerMasters: session.considerMasters ?? "",
+    planningYear: session.planningYear ?? "",
+    interestsMost: session.interestsMost ?? "",
   };
 }
 

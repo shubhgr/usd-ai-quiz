@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { questions } from "@/lib/questions";
+import CourseFab from "@/components/CourseFab";
 
 export interface LeaderboardRow {
   pid: string;
@@ -41,8 +42,6 @@ interface LeaderboardViewProps {
   rows: LeaderboardRow[];
   me?: MeInfo | null;
   myPid?: string;
-  myName?: string;
-  myScore?: number | null;
   pendingName?: string;
   loading?: boolean;
 }
@@ -88,8 +87,6 @@ export default function LeaderboardView({
   rows,
   me,
   myPid = "",
-  myName = "",
-  myScore = null,
   pendingName,
   loading = false,
 }: LeaderboardViewProps) {
@@ -97,17 +94,11 @@ export default function LeaderboardView({
   const topThree = rows.slice(0, 3);
   const podium = podiumOrder(topThree);
 
+  // Match by pid from the email link / session.
+  // Also match by server-reported me.rank when present (authenticated leaderboard).
   const isMe = (row: LeaderboardRow, rank: number) => {
     if (myPid && row.pid === myPid) return true;
-    if (me && me.rank === rank && myName && row.name === myName) return true;
-    if (
-      myName &&
-      myScore != null &&
-      row.name === myName &&
-      row.totalScore === myScore
-    ) {
-      return true;
-    }
+    if (myPid && me?.rank === rank) return true;
     return false;
   };
 
@@ -119,7 +110,7 @@ export default function LeaderboardView({
   useEffect(() => {
     if (!youRef.current) return;
     youRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [rows, myPid, me, myScore]);
+  }, [rows, myPid, me]);
 
   return (
     <div className="lb-page w-full" aria-busy={loading || undefined}>
@@ -169,7 +160,7 @@ export default function LeaderboardView({
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-xl px-5 pb-12 pt-8">
+      <div className="mx-auto w-full max-w-xl px-5 pb-24 pt-8">
         {loading && (
           <p className="lb-loading-hint" role="status">
             Loading rankings…
@@ -215,12 +206,7 @@ export default function LeaderboardView({
                   <span className="lb-row-name" title={row.name}>
                     {mine ? `${row.name} (You)` : row.name}
                   </span>
-                  <span className="lb-row-meta">
-                    <span className="lb-row-score">
-                      {row.totalScore}/{questions.length}
-                    </span>
-                    <span className="lb-row-rank">#{rank}</span>
-                  </span>
+                  <span className="lb-row-rank">#{rank}</span>
                 </li>
               );
             })}
@@ -233,6 +219,8 @@ export default function LeaderboardView({
           </p>
         )}
       </div>
+
+      <CourseFab />
     </div>
   );
 }

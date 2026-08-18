@@ -21,6 +21,11 @@ model Registration {
   phone          String
   workExperience String?
   domain         String?
+  linkedinUrl    String?
+  bestDescribeYou String?
+  considerMasters String?
+  planningYear   String?
+  interestsMost  String?
   registeredAt   DateTime           @default(now())
   status         RegistrationStatus @default(not_started)
   lastActivityAt DateTime           @default(now())

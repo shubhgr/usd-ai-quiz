@@ -29,6 +29,12 @@ export default function RegisterForm() {
         return;
       }
       // The quiz page itself branches on status (start / resume / completed).
+      if (data.existing && data.status === "completed") {
+        router.replace(
+          `/results?email=${encodeURIComponent(email.toLowerCase())}`
+        );
+        return;
+      }
       router.push(quizUrl(email.toLowerCase()));
     } catch {
       setError("Network error. Please try again.");

@@ -41,16 +41,16 @@
   position: absolute;
   inset: 0;
   background-image: url("/leaderboard-trophy.png");
-  background-size: min(420px, 90%) auto;
+  background-size: min(560px, 98%) auto;
   background-repeat: no-repeat;
   background-position: center 0;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .lb-podium-area {
   position: relative;
   z-index: 1;
-  padding-top: 7.5rem;
+  padding-top: 11rem;
 }
 
 .lb-podium-grid {

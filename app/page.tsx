@@ -34,8 +34,11 @@ export default function LandingPage() {
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [workExperience, setWorkExperience] = useState("");
-  const [domain, setDomain] = useState("");
+  const [linkedInUrl, setLinkedInUrl] = useState("");
+  const [bestDescribeYou, setBestDescribeYou] = useState("");
+  const [considerMasters, setConsiderMasters] = useState("");
+  const [planningYear, setPlanningYear] = useState("");
+  const [interestsMost, setInterestsMost] = useState("");
 
   const [showResume, setShowResume] = useState(false);
   const [resumeEmail, setResumeEmail] = useState("");
@@ -92,8 +95,11 @@ export default function LandingPage() {
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
-        workExperience,
-        domain,
+        linkedinUrl: linkedInUrl,
+        bestDescribeYou,
+        considerMasters,
+        planningYear,
+        interestsMost,
       };
 
       const durable = saveSession({
@@ -102,8 +108,13 @@ export default function LandingPage() {
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
-        workExperience,
-        domain,
+        workExperience: "",
+        domain: "",
+        linkedinUrl: linkedInUrl,
+        bestDescribeYou,
+        considerMasters,
+        planningYear,
+        interestsMost,
         registeredAt: Date.now(),
         registered: false,
         answers: {},
@@ -153,6 +164,64 @@ export default function LandingPage() {
           })
           .catch(() => scheduleSync());
         scheduleSync();
+
+        // Already finished? Skip quiz entirely — go straight to results.
+        try {
+          const resume = await fetchJson<{
+            status?: string;
+            pid?: string;
+            token?: string;
+            name?: string;
+            score?: {
+              totalScore: number;
+              completionTimeSeconds: number;
+              completedAt: string | null;
+            } | null;
+            rank?: number | null;
+          }>("/api/resume", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: normalizedEmail }),
+            timeoutMs: 12_000,
+          });
+          if (
+            resume.ok &&
+            resume.data.status === "completed" &&
+            resume.data.pid &&
+            resume.data.token
+          ) {
+            saveSession({
+              pid: String(resume.data.pid),
+              token: String(resume.data.token),
+              name: resume.data.name ?? fullName,
+              email: normalizedEmail,
+              phone: phoneDigits,
+              workExperience: "",
+              domain: "",
+              linkedinUrl: linkedInUrl,
+              bestDescribeYou,
+              considerMasters,
+              planningYear,
+              interestsMost,
+              registeredAt: Date.now(),
+              registered: true,
+              answers: {},
+              syncedAnswerString: "",
+              completed: true,
+              submitted: true,
+              score: resume.data.score?.totalScore ?? null,
+              completionTimeSeconds:
+                resume.data.score?.completionTimeSeconds ?? null,
+              completedAt: resume.data.score?.completedAt ?? null,
+              rank: resume.data.rank ?? null,
+            });
+            window.location.replace(resultsUrl(normalizedEmail));
+            return;
+          }
+        } catch {
+          // Fall through to quiz; QuizClient will re-check completion.
+        }
+
         go(quizUrl(normalizedEmail));
         return;
       }
@@ -184,8 +253,13 @@ export default function LandingPage() {
         name: fullName,
         email: normalizedEmail,
         phone: phoneDigits,
-        workExperience,
-        domain,
+        workExperience: "",
+        domain: "",
+        linkedinUrl: linkedInUrl,
+        bestDescribeYou,
+        considerMasters,
+        planningYear,
+        interestsMost,
         registeredAt: Date.now(),
         registered: true,
         answers: {},
@@ -421,65 +495,132 @@ export default function LandingPage() {
                 />
               </div>
 
-              <div>
-                <label htmlFor="workExperience" className="register-label">
-                  Work Experience (in years)
-                </label>
-                <div className="register-select-wrap">
-                  <select
-                    id="workExperience"
-                    required
-                    value={workExperience}
-                    onChange={(e) => setWorkExperience(e.target.value)}
-                    className="register-input register-select"
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="bestDescribeYou"
+                    className="register-label"
                   >
-                    <option value="" disabled>
-                      Select…
-                    </option>
-                    <option value="15+ Years">15+ Years</option>
-                    <option value="10-15 Years">10-15 Years</option>
-                    <option value="5-10 Years">5-10 Years</option>
-                    <option value="2-5 Years">2-5 Years</option>
-                    <option value="0-2 Years">0-2 Years</option>
-                    <option value="Fresher">Fresher</option>
-                    <option value="Still a student">Still a student</option>
-                  </select>
+                    What best describes you?*
+                  </label>
+                  <div className="register-select-wrap">
+                    <select
+                      id="bestDescribeYou"
+                      required
+                      value={bestDescribeYou}
+                      onChange={(e) => setBestDescribeYou(e.target.value)}
+                      className="register-input register-select"
+                    >
+                      <option value="" disabled>
+                        Select…
+                      </option>
+                      <option value="Fresh Graduate">Fresh Graduate</option>
+                      <option value="Early-Career Professional">
+                        Early-Career Professional
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="considerMasters" className="register-label">
+                    Master&apos;s in the U.S.?*
+                  </label>
+                  <div className="register-select-wrap">
+                    <select
+                      id="considerMasters"
+                      required
+                      value={considerMasters}
+                      onChange={(e) => setConsiderMasters(e.target.value)}
+                      className="register-input register-select"
+                    >
+                      <option value="" disabled>
+                        Select…
+                      </option>
+                      <option value="Yes, actively planning">
+                        Yes, actively planning
+                      </option>
+                      <option value="Yes, exploring my options">
+                        Yes, exploring my options
+                      </option>
+                      <option value="Maybe in the future">
+                        Maybe in the future
+                      </option>
+                      <option value="Not currently">Not currently</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="planningYear" className="register-label">
+                    When are you planning to pursue your Master&apos;s?*
+                  </label>
+                  <div className="register-select-wrap">
+                    <select
+                      id="planningYear"
+                      required
+                      value={planningYear}
+                      onChange={(e) => setPlanningYear(e.target.value)}
+                      className="register-input register-select"
+                    >
+                      <option value="" disabled>
+                        Select…
+                      </option>
+                      <option value="2027">2027</option>
+                      <option value="2028">2028</option>
+                      <option value="2029 or later">2029 or later</option>
+                      <option value="Not decided">Not decided</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="interestsMost" className="register-label">
+                    What interests you most about the AI Grand Prix?*
+                  </label>
+                  <div className="register-select-wrap">
+                    <select
+                      id="interestsMost"
+                      required
+                      value={interestsMost}
+                      onChange={(e) => setInterestsMost(e.target.value)}
+                      className="register-input register-select"
+                    >
+                      <option value="" disabled>
+                        Select…
+                      </option>
+                      <option value="Testing my AI knowledge">
+                        Testing my AI knowledge
+                      </option>
+                      <option value="Winning a scholarship for my U.S. Master's">
+                        Winning a scholarship for my U.S. Master&apos;s
+                      </option>
+                      <option value="Competing with others and seeing where I rank">
+                        Competing with others and seeing where I rank
+                      </option>
+                      <option value="Winning the cash prize">
+                        Winning the cash prize
+                      </option>
+                      <option value="Just curious to see what the challenge is about">
+                        Just curious to see what the challenge is about
+                      </option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="domain" className="register-label">
-                  Which domain are you currently working in?
+                <label htmlFor="linkedInUrl" className="register-label">
+                  LinkedIn Profile URL
                 </label>
-                <div className="register-select-wrap">
-                  <select
-                    id="domain"
-                    required
-                    value={domain}
-                    onChange={(e) => setDomain(e.target.value)}
-                    className="register-input register-select"
-                  >
-                    <option value="" disabled>
-                      Select…
-                    </option>
-                    <option value="Software Development / Engineering">
-                      Software Development / Engineering
-                    </option>
-                    <option value="Data Science & Analytics">
-                      Data Science & Analytics
-                    </option>
-                    <option value="Artificial Intelligence (AI)">
-                      Artificial Intelligence (AI)
-                    </option>
-                    <option value="Cybersecurity">Cybersecurity</option>
-                    <option value="IT Infrastructure / Cloud / Networking">
-                      IT Infrastructure / Cloud / Networking
-                    </option>
-                    <option value="Product / Project / Program Management">
-                      Product / Project / Program Management
-                    </option>
-                  </select>
-                </div>
+                <input
+                  id="linkedInUrl"
+                  type="url"
+                  value={linkedInUrl}
+                  onChange={(e) => setLinkedInUrl(e.target.value)}
+                  placeholder="https://linkedin.com/in/your-handle"
+                  className="register-input"
+                />
               </div>
 
               {error && (

@@ -125,6 +125,11 @@ export function persistResolvedCredentials(
     phone: existing?.phone ?? "",
     workExperience: existing?.workExperience ?? "",
     domain: existing?.domain ?? "",
+    linkedinUrl: existing?.linkedinUrl ?? "",
+    bestDescribeYou: existing?.bestDescribeYou ?? "",
+    considerMasters: existing?.considerMasters ?? "",
+    planningYear: existing?.planningYear ?? "",
+    interestsMost: existing?.interestsMost ?? "",
     registeredAt: existing?.registeredAt ?? Date.now(),
     registered: true,
     answers:

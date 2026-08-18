@@ -33,16 +33,12 @@ function LeaderboardShell({
   rows = [],
   me = null,
   myPid = "",
-  myName = "",
-  myScore = null,
   pendingName = "",
 }: {
   loading?: boolean;
   rows?: LeaderboardRow[];
   me?: MeInfo | null;
   myPid?: string;
-  myName?: string;
-  myScore?: number | null;
   pendingName?: string;
 }) {
   return (
@@ -51,8 +47,6 @@ function LeaderboardShell({
         rows={rows}
         me={me}
         myPid={myPid}
-        myName={myName}
-        myScore={myScore}
         pendingName={pendingName}
         loading={loading}
       />
@@ -84,8 +78,8 @@ function Leaderboard() {
 
   const [pid, setPid] = useState("");
   const [token, setToken] = useState("");
+  const [credsReady, setCredsReady] = useState(!email);
   const [myName, setMyName] = useState("");
-  const [myScore, setMyScore] = useState<number | null>(null);
   const [rows, setRows] = useState<LeaderboardRow[]>(cached?.rows ?? []);
   const [me, setMe] = useState<MeInfo | null>(cached?.me ?? null);
   const [ready, setReady] = useState(Boolean(cached?.rows.length));
@@ -93,98 +87,126 @@ function Leaderboard() {
   const [loading, setLoading] = useState(!cached?.rows.length);
   const [pendingName, setPendingName] = useState("");
   const rowsRef = useRef<LeaderboardRow[]>(cached?.rows ?? []);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     rowsRef.current = rows;
   }, [rows]);
 
   useEffect(() => {
-    const local = loadSession();
-    if (!email || !local || normalizeEmail(local.email) !== email) return;
-    setMyName(local.name);
-    setMyScore(local.score);
-    const hasMe = Boolean(
-      local.pid && rowsRef.current.some((r) => r.pid === local.pid)
-    );
-    if (local.completed && !hasMe) {
-      setPendingName(local.name);
+    if (!email) {
+      setCredsReady(true);
+      return;
     }
-    if (local.pid) setPid(local.pid);
-    if (local.token) setToken(local.token);
-  }, [email]);
 
-  useEffect(() => {
-    if (!email) return;
     let cancelled = false;
+    setCredsReady(false);
+
+    const local = loadSession();
+    if (local && normalizeEmail(local.email) === email) {
+      setMyName(local.name);
+      if (local.pid) setPid(local.pid);
+      if (local.token) setToken(local.token);
+    }
+
     (async () => {
       const creds = await resolveCredentialsByEmail(email);
-      if (cancelled || !creds) return;
+      if (cancelled) return;
+      if (!creds) {
+        setError("No registration found for this email.");
+        setCredsReady(true);
+        setLoading(false);
+        return;
+      }
       setPid(creds.pid);
       setToken(creds.token);
       if (creds.name) setMyName(creds.name);
       persistResolvedCredentials(creds);
+      setCredsReady(true);
     })();
+
     return () => {
       cancelled = true;
     };
   }, [email]);
 
-  const loadingRef = useRef(false);
+  const loadLeaderboard = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      // Personalized links must wait for email → pid/token before fetching,
+      // otherwise standings returns rows without real pids and "(You)" never matches.
+      if (email && !credsReady) return;
+      if (email && (!pid || !token)) return;
 
-  const loadLeaderboard = useCallback(async (opts?: { silent?: boolean }) => {
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-    const hasRows = rowsRef.current.length > 0;
-    if (!opts?.silent && !hasRows) setLoading(true);
-    try {
-      const url =
-        pid && token
-          ? `/api/leaderboard?limit=100&pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
-          : "/api/standings?limit=100";
-      const res = await fetch(url);
-      const body = (await res.json()) as LeaderboardResponse;
-      if (!res.ok || body.error) {
-        if (res.status === 502 && rowsRef.current.length > 0) return;
-        throw new Error(body.error ?? "Failed to load");
+      const requestId = ++requestIdRef.current;
+      const hasRows = rowsRef.current.length > 0;
+      if (!opts?.silent && !hasRows) setLoading(true);
+
+      try {
+        const url =
+          pid && token
+            ? `/api/leaderboard?limit=100&pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
+            : "/api/standings?limit=100";
+        const res = await fetch(url);
+        const body = (await res.json()) as LeaderboardResponse;
+        if (requestId !== requestIdRef.current) return;
+
+        if (!res.ok || body.error) {
+          if (res.status === 502 && rowsRef.current.length > 0) return;
+          throw new Error(body.error ?? "Failed to load");
+        }
+
+        const nextRows: LeaderboardRow[] =
+          body.topEntries ??
+          (body.entries ?? []).map((e) => ({
+            pid: `rank-${e.rank}`,
+            name: e.name,
+            totalScore: e.score,
+            completionTimeSeconds: 0,
+            completedAt: "",
+          }));
+
+        setRows(nextRows);
+        setMe(body.me ?? null);
+        setLeaderboardClientCache({
+          rows: nextRows,
+          me: body.me ?? null,
+          myRank: body.me?.rank ?? null,
+        });
+
+        if (body.me?.rank) {
+          setCachedRank(body.me.rank);
+          const cur = loadSession();
+          if (cur) saveSession({ ...cur, rank: body.me.rank });
+        }
+
+        if (pid && token) {
+          const inList = nextRows.some((r) => r.pid === pid);
+          if (body.me || inList) {
+            setPendingName("");
+          } else {
+            const local = loadSession();
+            if (local?.completed) setPendingName(local.name || myName);
+          }
+        } else {
+          setPendingName("");
+        }
+
+        setError("");
+        setReady(true);
+      } catch (err) {
+        if (requestId !== requestIdRef.current) return;
+        if (rowsRef.current.length > 0) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't load the leaderboard. Please try again."
+        );
+      } finally {
+        if (requestId === requestIdRef.current) setLoading(false);
       }
-      const nextRows: LeaderboardRow[] =
-        body.topEntries ??
-        (body.entries ?? []).map((e) => ({
-          pid: `rank-${e.rank}`,
-          name: e.name,
-          totalScore: e.score,
-          completionTimeSeconds: 0,
-          completedAt: "",
-        }));
-      setRows(nextRows);
-      setMe(body.me ?? null);
-      setLeaderboardClientCache({
-        rows: nextRows,
-        me: body.me ?? null,
-        myRank: body.me?.rank ?? null,
-      });
-      if (body.me?.rank) {
-        setCachedRank(body.me.rank);
-        const cur = loadSession();
-        if (cur) saveSession({ ...cur, rank: body.me.rank });
-      }
-      if (body.me || nextRows.some((r) => r.pid === pid && pid)) {
-        setPendingName("");
-      }
-      setError("");
-      setReady(true);
-    } catch (err) {
-      if (rowsRef.current.length > 0) return;
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't load the leaderboard. Please try again."
-      );
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-    }
-  }, [pid, token]);
+    },
+    [email, credsReady, pid, token, myName]
+  );
 
   useEffect(() => {
     void loadLeaderboard({ silent: rowsRef.current.length > 0 });
@@ -217,10 +239,8 @@ function Leaderboard() {
         rows={rows}
         me={me}
         myPid={pid}
-        myName={myName}
-        myScore={myScore}
         pendingName={pendingName}
-        loading={loading && !ready && rows.length === 0}
+        loading={(loading || (Boolean(email) && !credsReady)) && rows.length === 0}
       />
     </main>
   );

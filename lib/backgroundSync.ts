@@ -155,6 +155,11 @@ async function runOnce(): Promise<void> {
       phone: session.phone,
       workExperience: session.workExperience,
       domain: session.domain,
+        linkedinUrl: session.linkedinUrl,
+        bestDescribeYou: session.bestDescribeYou,
+        considerMasters: session.considerMasters,
+        planningYear: session.planningYear,
+        interestsMost: session.interestsMost,
     });
 
     if (!reg.ok) {
@@ -325,6 +330,11 @@ export function flushPendingOnUnload(): void {
           phone: session.phone,
           workExperience: session.workExperience,
           domain: session.domain,
+          linkedinUrl: session.linkedinUrl,
+          bestDescribeYou: session.bestDescribeYou,
+          considerMasters: session.considerMasters,
+          planningYear: session.planningYear,
+          interestsMost: session.interestsMost,
         })
       );
     } catch {

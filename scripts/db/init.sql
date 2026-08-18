@@ -9,10 +9,30 @@ CREATE TABLE IF NOT EXISTS participants (
   phone text NOT NULL DEFAULT '',
   work_experience text NOT NULL DEFAULT '',
   domain text NOT NULL DEFAULT '',
+  linkedin_url text NULL,
+  best_describe_you text NULL,
+  consider_masters text NULL,
+  planning_year text NULL,
+  interests_most text NULL,
   status text NOT NULL CHECK (status IN ('not_started', 'in_progress', 'completed')),
   registered_at timestamptz NOT NULL,
   last_activity_at timestamptz NOT NULL
 );
+
+-- If the participants table already exists, add missing columns for
+-- lead-gen fields without requiring a destructive migration.
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS linkedin_url text NULL;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS best_describe_you text NULL;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS consider_masters text NULL;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS planning_year text NULL;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS interests_most text NULL;
+
+-- If the columns already exist as NOT NULL, relax them.
+ALTER TABLE participants ALTER COLUMN linkedin_url DROP NOT NULL;
+ALTER TABLE participants ALTER COLUMN best_describe_you DROP NOT NULL;
+ALTER TABLE participants ALTER COLUMN consider_masters DROP NOT NULL;
+ALTER TABLE participants ALTER COLUMN planning_year DROP NOT NULL;
+ALTER TABLE participants ALTER COLUMN interests_most DROP NOT NULL;
 
 -- Attempts table (answers + computed score/time)
 CREATE TABLE IF NOT EXISTS attempts (

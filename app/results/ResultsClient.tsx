@@ -13,6 +13,7 @@ import {
 import { downloadResultPdf } from "@/lib/resultPdf";
 import { showToast } from "@/lib/toast";
 import { allAnswersString } from "@/lib/quizScreens";
+import CourseFab from "@/components/CourseFab";
 import {
   getLeaderboardClientCache,
   setCachedRank,
@@ -509,15 +510,79 @@ export default function ResultsClient({ email }: { email: string }) {
   }
 
   if (!revealCard || !data?.score) {
+    const previewName = data?.name || email;
+
     return (
-      <main className="flex flex-1 items-center justify-center px-6 py-16">
-        <div className="max-w-md text-center">
-          <div className="mx-auto mb-6 h-12 w-12 animate-spin rounded-full border-2 border-[#75BEE9]/30 border-t-[#75BEE9]" />
-          <h1 className="text-2xl font-bold">Calculating your score…</h1>
-          <p className="mt-3 text-slate-400">
+      <main className="results-page relative mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-8 sm:px-6 sm:py-10">
+        <div className="results-page-glow results-page-glow--a" aria-hidden />
+        <div className="results-page-glow results-page-glow--b" aria-hidden />
+
+        <div
+          className="results-card results-card--skeleton relative w-full overflow-hidden rounded-2xl p-5 sm:p-6"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <div className="results-card-shine" aria-hidden />
+
+          <div className="results-hero relative text-center">
+            <div className="results-badge mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl">
+              <span className="results-skel results-skel--badge" aria-hidden />
+            </div>
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#75BEE9]">
+              Assessment complete
+            </p>
+          </div>
+
+          <div className="results-you-card relative mt-4">
+            <span className="results-you-name" title={previewName}>
+              {previewName}
+            </span>
+            <span className="results-calculating">Calculating…</span>
+          </div>
+
+          <div className="results-score-block relative mt-6 text-center">
+            <div className="results-score-ring">
+              <p className="results-calculating text-lg font-semibold tracking-wide sm:text-xl">
+                Calculating…
+              </p>
+            </div>
+            <span
+              className="results-skel results-skel--line mx-auto mt-4 block"
+              aria-hidden
+            />
+          </div>
+
+          <div className="results-meta relative mt-4">
+            <div className="results-meta-item">
+              <p className="results-meta-label">Time</p>
+              <span
+                className="results-skel results-skel--value mx-auto mt-1 block"
+                aria-hidden
+              />
+            </div>
+            <div className="results-meta-divider" aria-hidden />
+            <div className="results-meta-item">
+              <p className="results-meta-label">Rank</p>
+              <p className="results-meta-value results-calculating">
+                Calculating…
+              </p>
+            </div>
+          </div>
+
+          <div className="relative mt-4 space-y-2.5" aria-hidden>
+            <span className="results-skel results-skel--btn block w-full" />
+            <div className="grid grid-cols-2 gap-2.5">
+              <span className="results-skel results-skel--btn block" />
+              <span className="results-skel results-skel--btn block" />
+            </div>
+          </div>
+
+          <p className="relative mt-3 text-center text-[0.6875rem] text-slate-500">
             Scoring your answers. This usually takes a few seconds.
           </p>
         </div>
+
+        <CourseFab />
       </main>
     );
   }
@@ -528,16 +593,19 @@ export default function ResultsClient({ email }: { email: string }) {
   const pct = Math.round((score.totalScore / questions.length) * 100);
 
   return (
-    <main className="relative mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-10 sm:px-6 sm:py-14">
-      <div className="pointer-events-none absolute -top-20 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[#0074C8]/20 blur-[120px]" />
+    <main className="results-page relative mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-8 sm:px-6 sm:py-10">
+      <div className="results-page-glow results-page-glow--a" aria-hidden />
+      <div className="results-page-glow results-page-glow--b" aria-hidden />
 
-      <div className="results-card relative w-full overflow-hidden rounded-3xl p-8 sm:p-10">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#75BEE9]/10 blur-3xl" />
+      <div className="results-card relative w-full overflow-hidden rounded-2xl p-5 sm:p-6">
+        <div className="results-card-shine" aria-hidden />
+        <div className="pointer-events-none absolute -right-16 -top-16 h-28 w-28 rounded-full bg-[#75BEE9]/06 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-16 -left-10 h-24 w-24 rounded-full bg-[#0074C8]/08 blur-3xl" />
 
-        <div className="relative text-center">
-          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0074C8]/25 ring-1 ring-[#75BEE9]/30">
+        <div className="results-hero relative text-center">
+          <div className="results-badge mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl">
             <svg
-              className="h-7 w-7 text-[#75BEE9]"
+              className="h-5 w-5 text-[#75BEE9]"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -551,15 +619,12 @@ export default function ResultsClient({ email }: { email: string }) {
               />
             </svg>
           </div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#75BEE9]">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#75BEE9]">
             Assessment complete
           </p>
-          <h1 className="mt-2 text-xl font-bold text-white sm:text-2xl">
-            {displayName ? `${displayName}, you're done!` : "You're done!"}
-          </h1>
         </div>
 
-        <div className="results-you-card relative mt-8">
+        <div className="results-you-card relative mt-4">
           <span className="results-you-name" title={displayName || email}>
             {displayName || email}
           </span>
@@ -568,41 +633,40 @@ export default function ResultsClient({ email }: { email: string }) {
           </span>
         </div>
 
-        <div className="relative mt-8 text-center">
-          <p className="results-score-value text-7xl font-extrabold leading-none tracking-tight sm:text-8xl">
-            {score.totalScore}
-            <span className="text-3xl font-semibold text-slate-500 sm:text-4xl">
-              /{questions.length}
-            </span>
-          </p>
-          <p className="mt-3 text-sm text-slate-400">{pct}% correct</p>
+        <div className="results-score-block relative mt-6 text-center">
+          <div className="results-score-ring">
+            <p className="results-score-value text-7xl font-extrabold leading-none tracking-tight sm:text-8xl">
+              {score.totalScore}
+              <span className="results-score-total text-3xl font-semibold sm:text-4xl">
+                /{questions.length}
+              </span>
+            </p>
+          </div>
+          <p className="mt-3 text-sm font-medium text-slate-400">{pct}% correct</p>
         </div>
 
-        <div className="relative mt-8 grid grid-cols-2 gap-3">
-          <div className="results-stat-pill rounded-xl px-4 py-3 text-center">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Time
-            </p>
-            <p className="mt-1 text-base font-semibold text-white">
+        <div className="results-meta relative mt-4">
+          <div className="results-meta-item">
+            <p className="results-meta-label">Time</p>
+            <p className="results-meta-value">
               {timeSeconds != null ? formatDuration(timeSeconds) : "—"}
             </p>
           </div>
-          <div className="results-stat-pill rounded-xl px-4 py-3 text-center">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Rank
-            </p>
-            <p className={`mt-1 text-base font-semibold ${rank ? "text-white" : "results-calculating"}`}>
+          <div className="results-meta-divider" aria-hidden />
+          <div className="results-meta-item">
+            <p className="results-meta-label">Rank</p>
+            <p className={`results-meta-value ${rank ? "" : "results-calculating"}`}>
               {rank ? `#${rank}` : "updating…"}
             </p>
           </div>
         </div>
 
-        <div className="relative mt-8 space-y-3">
+        <div className="relative mt-4 space-y-2.5">
           <button
             type="button"
             onClick={() => void downloadPdf()}
             disabled={!score || pdfBusy}
-            className="cta-button-gradient flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="results-cta flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <svg
               className="h-4 w-4"
@@ -618,14 +682,18 @@ export default function ResultsClient({ email }: { email: string }) {
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
               />
             </svg>
-            {pdfBusy ? "Preparing PDF…" : score ? "Download PDF result" : "PDF available after score"}
+            {pdfBusy
+              ? "Preparing PDF…"
+              : score
+                ? "Download PDF result"
+                : "PDF available after score"}
           </button>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2.5">
             <button
               type="button"
               onClick={goToLeaderboard}
-              className="results-btn-secondary flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-semibold text-white"
+              className="results-btn-secondary flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-semibold text-white"
             >
               <svg
                 className="h-4 w-4 text-[#75BEE9]"
@@ -646,7 +714,7 @@ export default function ResultsClient({ email }: { email: string }) {
             <button
               type="button"
               onClick={() => void copyResultsLink()}
-              className={`results-btn-secondary flex items-center justify-center gap-1.5 rounded-xl py-3 text-sm font-semibold text-white ${copied ? "results-btn-copied" : ""}`}
+              className={`results-btn-secondary flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-semibold text-white ${copied ? "results-btn-copied" : ""}`}
             >
               {copied ? (
                 <>
@@ -689,10 +757,12 @@ export default function ResultsClient({ email }: { email: string }) {
           </div>
         </div>
 
-        <p className="relative mt-6 text-center text-xs text-slate-500">
+        <p className="relative mt-3 text-center text-[0.6875rem] text-slate-500">
           Full question breakdown is included in your PDF download.
         </p>
       </div>
+
+      <CourseFab />
     </main>
   );
 }
