@@ -5,7 +5,7 @@ import Link from "next/link";
 import { questions } from "@/lib/questions";
 import { loadSession, saveSession, type LocalSession } from "@/lib/clientSession";
 import { flushPendingOnUnload, scheduleSync } from "@/lib/backgroundSync";
-import { resultsUrl, leaderboardUrl, normalizeEmail } from "@/lib/quizUrls";
+import { leaderboardUrl, normalizeEmail } from "@/lib/quizUrls";
 import {
   resolveCredentialsByEmail,
   persistResolvedCredentials,
@@ -87,7 +87,6 @@ export default function ResultsClient({ email }: { email: string }) {
         isTabBlocked(session.tabSwitches)
     );
   });
-  const [copied, setCopied] = useState(false);
   const [revealCard, setRevealCard] = useState(false);
   const [rank, setRank] = useState<number | null>(() => {
     if (typeof window === "undefined") return null;
@@ -427,24 +426,6 @@ export default function ResultsClient({ email }: { email: string }) {
     };
   }, [pid, token, rank]);
 
-  const copyResultsLink = useCallback(async () => {
-    const url = `${window.location.origin}${resultsUrl(email)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = url;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2500);
-  }, [email]);
-
   const goToLeaderboard = useCallback(() => {
     if (data) {
       persistResolvedCredentials(
@@ -546,7 +527,7 @@ export default function ResultsClient({ email }: { email: string }) {
               <span className="results-skel results-skel--badge" aria-hidden />
             </div>
             <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#75BEE9]">
-              Assessment complete
+              Your AI Grand Prix Result
             </p>
           </div>
 
@@ -554,44 +535,24 @@ export default function ResultsClient({ email }: { email: string }) {
             <span className="results-you-name" title={previewName}>
               {previewName}
             </span>
-            <span className="results-calculating">Calculating…</span>
           </div>
 
           <div className="results-score-block relative mt-6 text-center">
-            <div className="results-score-ring">
+            <p className="results-score-label">Your Score</p>
+            <div className="results-score-ring mt-2">
               <p className="results-calculating text-lg font-semibold tracking-wide sm:text-xl">
                 Calculating…
               </p>
             </div>
-            <span
-              className="results-skel results-skel--line mx-auto mt-4 block"
-              aria-hidden
-            />
           </div>
 
-          <div className="results-meta relative mt-4">
-            <div className="results-meta-item">
-              <p className="results-meta-label">Time</p>
-              <span
-                className="results-skel results-skel--value mx-auto mt-1 block"
-                aria-hidden
-              />
-            </div>
-            <div className="results-meta-divider" aria-hidden />
-            <div className="results-meta-item">
-              <p className="results-meta-label">Rank</p>
-              <p className="results-meta-value results-calculating">
-                Calculating…
-              </p>
-            </div>
-          </div>
+          <p className="results-meta-line relative mt-4 text-center">
+            <span className="results-calculating">Updating rank…</span>
+          </p>
 
-          <div className="relative mt-4 space-y-2.5" aria-hidden>
-            <span className="results-skel results-skel--btn block w-full" />
-            <div className="grid grid-cols-2 gap-2.5">
-              <span className="results-skel results-skel--btn block" />
-              <span className="results-skel results-skel--btn block" />
-            </div>
+          <div className="relative mt-4 grid grid-cols-2 gap-2.5" aria-hidden>
+            <span className="results-skel results-skel--btn block" />
+            <span className="results-skel results-skel--btn block" />
           </div>
 
           <p className="relative mt-3 text-center text-[0.6875rem] text-slate-500">
@@ -607,7 +568,9 @@ export default function ResultsClient({ email }: { email: string }) {
   const displayName = data.name ?? "";
   const score = data.score;
   const timeSeconds = score.completionTimeSeconds ?? localTimeSeconds;
-  const pct = Math.round((score.totalScore / questions.length) * 100);
+  const timeLabel =
+    timeSeconds != null ? formatDuration(timeSeconds) : "—";
+  const rankLabel = rank ? `#${rank}` : null;
 
   return (
     <main className="results-page relative mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-8 sm:px-6 sm:py-10">
@@ -637,7 +600,7 @@ export default function ResultsClient({ email }: { email: string }) {
             </svg>
           </div>
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-[#75BEE9]">
-            Assessment complete
+            Your AI Grand Prix Result
           </p>
         </div>
 
@@ -645,13 +608,11 @@ export default function ResultsClient({ email }: { email: string }) {
           <span className="results-you-name" title={displayName || email}>
             {displayName || email}
           </span>
-          <span className={rank ? "results-you-rank" : "results-calculating"}>
-            {rank ? `#${rank}` : "updating…"}
-          </span>
         </div>
 
         <div className="results-score-block relative mt-6 text-center">
-          <div className="results-score-ring">
+          <p className="results-score-label">Your Score</p>
+          <div className="results-score-ring mt-2">
             <p className="results-score-value text-7xl font-extrabold leading-none tracking-tight sm:text-8xl">
               {score.totalScore}
               <span className="results-score-total text-3xl font-semibold sm:text-4xl">
@@ -659,34 +620,37 @@ export default function ResultsClient({ email }: { email: string }) {
               </span>
             </p>
           </div>
-          <p className="mt-3 text-sm font-medium text-slate-400">{pct}% correct</p>
         </div>
 
-        <div className="results-meta relative mt-4">
-          <div className="results-meta-item">
-            <p className="results-meta-label">Time</p>
-            <p className="results-meta-value">
-              {timeSeconds != null ? formatDuration(timeSeconds) : "—"}
-            </p>
-          </div>
-          <div className="results-meta-divider" aria-hidden />
-          <div className="results-meta-item">
-            <p className="results-meta-label">Rank</p>
-            <p className={`results-meta-value ${rank ? "" : "results-calculating"}`}>
-              {rank ? `#${rank}` : "updating…"}
-            </p>
-          </div>
-        </div>
+        <p className="results-meta-line relative mt-4 text-center">
+          {rankLabel ? (
+            <>
+              Rank {rankLabel}
+              <span className="results-meta-sep" aria-hidden>
+                ·
+              </span>
+              Time: {timeLabel}
+            </>
+          ) : (
+            <>
+              <span className="results-calculating">Updating rank…</span>
+              <span className="results-meta-sep" aria-hidden>
+                ·
+              </span>
+              Time: {timeLabel}
+            </>
+          )}
+        </p>
 
-        <div className="relative mt-4 space-y-2.5">
+        <div className="relative mt-4 grid grid-cols-2 gap-2.5">
           <button
             type="button"
             onClick={() => void downloadPdf()}
             disabled={!score || pdfBusy}
-            className="results-cta flex w-full items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="results-cta flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <svg
-              className="h-4 w-4"
+              className="h-4 w-4 shrink-0"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -700,82 +664,37 @@ export default function ResultsClient({ email }: { email: string }) {
               />
             </svg>
             {pdfBusy
-              ? "Preparing PDF…"
+              ? "Preparing…"
               : score
-                ? "Download PDF result"
-                : "PDF available after score"}
+                ? "Download PDF Result"
+                : "PDF pending"}
           </button>
 
-          <div className="grid grid-cols-2 gap-2.5">
-            <button
-              type="button"
-              onClick={goToLeaderboard}
-              className="results-btn-secondary flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-semibold text-white"
+          <button
+            type="button"
+            onClick={goToLeaderboard}
+            className="results-btn-secondary flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-semibold text-white"
+          >
+            <svg
+              className="h-4 w-4 shrink-0 text-[#75BEE9]"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden
             >
-              <svg
-                className="h-4 w-4 text-[#75BEE9]"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-                aria-hidden
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
-              Leaderboard
-            </button>
-            <button
-              type="button"
-              onClick={() => void copyResultsLink()}
-              className={`results-btn-secondary flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-semibold text-white ${copied ? "results-btn-copied" : ""}`}
-            >
-              {copied ? (
-                <>
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="h-4 w-4 text-[#75BEE9]"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                    aria-hidden
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                    />
-                  </svg>
-                  Copy link
-                </>
-              )}
-            </button>
-          </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              />
+            </svg>
+            View Leaderboard
+          </button>
         </div>
 
         <p className="relative mt-3 text-center text-[0.6875rem] text-slate-500">
-          Full question breakdown is included in your PDF download.
+          Your complete question breakdown is available in the PDF.
         </p>
       </div>
 
