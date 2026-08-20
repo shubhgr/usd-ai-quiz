@@ -644,27 +644,51 @@ export default function QuizClient({ email }: { email: string }) {
     return (
       <div className="binary-bg flex min-h-dvh flex-col">
         <main className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-12 sm:px-8">
-          <div className="register-form-panel w-full p-6 text-center sm:p-8">
-            <h1 className="text-2xl font-bold text-white sm:text-3xl">
-              Ready to begin?
+          <div className="register-form-panel w-full p-6 text-left sm:p-8">
+            <h1 className="text-center text-2xl font-bold text-white sm:text-3xl">
+              Ready to take the challenge?
             </h1>
-            <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
-              You&apos;re registered for the AI Grand Prix. The {QUIZ_TIME_LIMIT_MINUTES}-minute
-              timer starts when you click Start — stay on this page until you submit.
+            <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+              You have {QUIZ_TIME_LIMIT_MINUTES} minutes to answer{" "}
+              {TOTAL_QUESTIONS} questions. Your timer will start as soon as you
+              click &ldquo;Take the Challenge&rdquo; and will continue running
+              until you submit.
             </p>
-            <ul className="mt-5 space-y-2 text-left text-sm text-slate-400">
-              <li>• {TOTAL_QUESTIONS} questions</li>
-              <li>• {QUIZ_TIME_LIMIT_MINUTES} minutes to complete</li>
-              <li>• Switching tabs may lead to disqualification</li>
-              <li>• You can only attempt this challenge once</li>
+            <p className="mt-4 text-sm font-medium text-slate-200 sm:text-base">
+              A few things to keep in mind before you start:
+            </p>
+            <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-400 sm:text-[0.9375rem]">
+              <li>You have one attempt and cannot restart the challenge.</li>
+              <li>
+                Make sure you have a stable internet connection before you begin.
+              </li>
+              <li>
+                Please stay on the challenge page throughout. Switching tabs or
+                windows may lead to disqualification.
+              </li>
+              <li>
+                If you do not submit within {QUIZ_TIME_LIMIT_MINUTES} minutes,
+                your answers will be submitted automatically.
+              </li>
+              <li>
+                Your score and completion time will be recorded for the
+                leaderboard.
+              </li>
+              <li>
+                If two participants have the same score, the faster completion
+                time will determine the higher rank.
+              </li>
             </ul>
+            <p className="mt-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+              Make sure you&apos;re ready before you begin.
+            </p>
             <button
               type="button"
               onClick={() => void startQuiz()}
               disabled={starting}
               className="register-btn-primary mt-7"
             >
-              {starting ? "Starting…" : "Start the Quiz"}
+              {starting ? "Starting…" : "Take the Challenge"}
             </button>
           </div>
         </main>
