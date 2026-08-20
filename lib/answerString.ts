@@ -15,7 +15,7 @@ export function splitAnswerString(answerStr: string): string[] {
   const raw = (answerStr || "").trim().toLowerCase();
   if (!raw) return [];
   if (raw.includes("|")) {
-    return raw.split("|").map(normalizeChoice).filter(Boolean);
+    return raw.split("|").map(normalizeChoice);
   }
   return raw.split("").filter((ch) => /^[a-f]$/.test(ch));
 }
@@ -30,13 +30,7 @@ export function answersFromString(answerStr: string): Record<string, string> {
 }
 
 export function allAnswersString(answers: Record<string, string>): string {
-  const parts: string[] = [];
-  for (const q of questions) {
-    const a = answers[q.id];
-    if (!a) break;
-    parts.push(normalizeChoice(a));
-  }
-  return parts.join("|");
+  return questions.map((q) => normalizeChoice(answers[q.id] ?? "")).join("|");
 }
 
 export function selectCountFor(q: Question): number {
@@ -70,7 +64,7 @@ export function isValidAnswerPayload(answerStr: string): boolean {
   const raw = (answerStr || "").trim().toLowerCase();
   if (!raw) return false;
   if (raw.includes("|")) {
-    return /^[a-f]+(\|[a-f]+)*$/.test(raw);
+    return /^[a-f]*(\|[a-f]*)*$/.test(raw);
   }
   return /^[a-f]+$/.test(raw);
 }

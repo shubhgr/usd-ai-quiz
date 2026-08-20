@@ -574,6 +574,14 @@
     margin-bottom: 0;
     border-bottom: none;
   }
+  .quiz-question-block--incomplete {
+    border-bottom-color: rgba(251, 191, 36, 0.35);
+  }
+  .quiz-question-block--incomplete .quiz-q-badge {
+    background: rgba(251, 191, 36, 0.18);
+    border-color: rgba(251, 191, 36, 0.55);
+    color: #fbbf24;
+  }
 
   .quiz-q-badge {
     display: flex;

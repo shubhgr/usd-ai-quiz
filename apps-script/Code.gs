@@ -289,7 +289,7 @@ function splitAnswers(raw) {
     var out = [];
     for (var i = 0; i < parts.length; i++) {
       var p = String(parts[i] || "").replace(/[^a-f]/g, "").split("").sort().join("");
-      if (p) out.push(p);
+      out.push(p);
     }
     return out;
   }
@@ -309,7 +309,7 @@ function validateAnswers(answers) {
   var parts = splitAnswers(answers);
   if (parts.length > TOTAL_QUESTIONS) return "answers string is too long";
   if (answers.indexOf("|") >= 0) {
-    if (!/^[a-f]+(\|[a-f]+)*$/.test(normalizeAnswers(answers))) {
+    if (!/^[a-f]*(\|[a-f]*)*$/.test(normalizeAnswers(answers))) {
       return "answers must be a-f letters separated by |";
     }
   } else if (!/^[a-f]+$/.test(normalizeAnswers(answers))) {
@@ -342,7 +342,13 @@ function responsesFromString(answerStr) {
 }
 
 function answersComplete(answers) {
-  return splitAnswers(answers).length === TOTAL_QUESTIONS;
+  var parts = splitAnswers(answers);
+  if (parts.length !== TOTAL_QUESTIONS) return false;
+  var key = correctParts();
+  for (var i = 0; i < TOTAL_QUESTIONS; i++) {
+    if (!parts[i] || parts[i].length !== key[i].length) return false;
+  }
+  return true;
 }
 
 function markCompleted(reg, rowInfo, answers) {

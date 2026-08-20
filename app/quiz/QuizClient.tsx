@@ -546,6 +546,16 @@ export default function QuizClient({ email }: { email: string }) {
   const firstUnansweredId = questions.find(
     (q) => !isQuestionAnswered(q, answers[q.id])
   )?.id;
+  const incompleteNumbers = questions
+    .map((q, i) => (isQuestionAnswered(q, answers[q.id]) ? null : i + 1))
+    .filter((n): n is number => n !== null);
+
+  const jumpToIncomplete = () => {
+    firstUnansweredRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  };
 
   return (
     <div
@@ -618,12 +628,15 @@ export default function QuizClient({ email }: { email: string }) {
           {questions.map((q, globalIndex) => {
             const selected = answers[q.id] ?? "";
             const need = selectCountFor(q);
+            const complete = isQuestionAnswered(q, selected);
+            const picked = normalizeChoice(selected).length;
             const isFirstUnanswered = q.id === firstUnansweredId;
             return (
               <article
                 key={q.id}
+                id={`question-${q.id}`}
                 ref={isFirstUnanswered ? firstUnansweredRef : undefined}
-                className="quiz-question-block"
+                className={`quiz-question-block${complete ? "" : " quiz-question-block--incomplete"}`}
               >
                 <div className="flex items-start gap-3.5 sm:gap-4">
                   <span className="quiz-q-badge" aria-hidden="true">
@@ -633,10 +646,7 @@ export default function QuizClient({ email }: { email: string }) {
                     <h2 className="quiz-q-text whitespace-pre-wrap">{q.text}</h2>
                     {need > 1 && (
                       <p className="mt-2 text-sm text-[#75BEE9]">
-                        Select {need} options
-                        {selected
-                          ? ` (${normalizeChoice(selected).length}/${need})`
-                          : ""}
+                        Select {need} options ({picked}/{need})
                       </p>
                     )}
                     <fieldset className="mt-5 space-y-2.5 border-0 p-0">
@@ -690,6 +700,18 @@ export default function QuizClient({ email }: { email: string }) {
           <p className="text-sm tabular-nums text-slate-400">
             <span className="font-medium text-white">{answeredCount}</span>
             <span> / {TOTAL_QUESTIONS} answered</span>
+            {!allComplete && incompleteNumbers.length > 0 && (
+              <>
+                <span className="mx-2 text-white/20">·</span>
+                <button
+                  type="button"
+                  onClick={jumpToIncomplete}
+                  className="text-[#fbbf24] hover:underline"
+                >
+                  Go to question {incompleteNumbers[0]}
+                </button>
+              </>
+            )}
           </p>
           <button
             type="button"
