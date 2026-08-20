@@ -560,35 +560,6 @@ export default function LandingPage() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="considerMasters" className="register-label">
-                    Master&apos;s in the U.S.?*
-                  </label>
-                  <div className="register-select-wrap">
-                    <select
-                      id="considerMasters"
-                      required
-                      value={considerMasters}
-                      onChange={(e) => setConsiderMasters(e.target.value)}
-                      className="register-input register-select"
-                    >
-                      <option value="" disabled>
-                        Select…
-                      </option>
-                      <option value="Yes, actively planning">
-                        Yes, actively planning
-                      </option>
-                      <option value="Yes, exploring my options">
-                        Yes, exploring my options
-                      </option>
-                      <option value="Maybe in the future">
-                        Maybe in the future
-                      </option>
-                      <option value="Not currently">Not currently</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
                   <label htmlFor="planningYear" className="register-label">
                     When are you planning to pursue your Master&apos;s?*
                   </label>
@@ -646,18 +617,49 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="linkedInUrl" className="register-label">
-                  LinkedIn Profile URL
-                </label>
-                <input
-                  id="linkedInUrl"
-                  type="url"
-                  value={linkedInUrl}
-                  onChange={(e) => setLinkedInUrl(e.target.value)}
-                  placeholder="https://linkedin.com/in/your-handle"
-                  className="register-input"
-                />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="considerMasters" className="register-label">
+                    Master&apos;s in the U.S.?*
+                  </label>
+                  <div className="register-select-wrap">
+                    <select
+                      id="considerMasters"
+                      required
+                      value={considerMasters}
+                      onChange={(e) => setConsiderMasters(e.target.value)}
+                      className="register-input register-select"
+                    >
+                      <option value="" disabled>
+                        Select…
+                      </option>
+                      <option value="Yes, actively planning">
+                        Yes, actively planning
+                      </option>
+                      <option value="Yes, exploring my options">
+                        Yes, exploring my options
+                      </option>
+                      <option value="Maybe in the future">
+                        Maybe in the future
+                      </option>
+                      <option value="Not currently">Not currently</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="linkedInUrl" className="register-label">
+                    LinkedIn Profile URL
+                  </label>
+                  <input
+                    id="linkedInUrl"
+                    type="url"
+                    value={linkedInUrl}
+                    onChange={(e) => setLinkedInUrl(e.target.value)}
+                    placeholder="https://linkedin.com/in/your-handle"
+                    className="register-input"
+                  />
+                </div>
               </div>
 
               {error && (
