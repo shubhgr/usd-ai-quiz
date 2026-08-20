@@ -41,7 +41,6 @@ export default function LandingPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [linkedInUrl, setLinkedInUrl] = useState("");
-  const [bestDescribeYou, setBestDescribeYou] = useState("");
   const [considerMasters, setConsiderMasters] = useState("");
   const [planningYear, setPlanningYear] = useState("");
   const [interestsMost, setInterestsMost] = useState("");
@@ -104,7 +103,7 @@ export default function LandingPage() {
         email: normalizedEmail,
         phone: phoneDigits,
         linkedinUrl: linkedInUrl,
-        bestDescribeYou,
+        bestDescribeYou: "",
         considerMasters,
         planningYear,
         interestsMost,
@@ -120,7 +119,7 @@ export default function LandingPage() {
         workExperience: "",
         domain: "",
         linkedinUrl: linkedInUrl,
-        bestDescribeYou,
+        bestDescribeYou: "",
         considerMasters,
         planningYear,
         interestsMost,
@@ -225,7 +224,7 @@ export default function LandingPage() {
               workExperience: "",
               domain: "",
               linkedinUrl: linkedInUrl,
-              bestDescribeYou,
+              bestDescribeYou: "",
               considerMasters,
               planningYear,
               interestsMost,
@@ -285,7 +284,7 @@ export default function LandingPage() {
         workExperience: "",
         domain: "",
         linkedinUrl: linkedInUrl,
-        bestDescribeYou,
+        bestDescribeYou: "",
         considerMasters,
         planningYear,
         interestsMost,
@@ -560,32 +559,6 @@ export default function LandingPage() {
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="bestDescribeYou"
-                    className="register-label"
-                  >
-                    What best describes you?*
-                  </label>
-                  <div className="register-select-wrap">
-                    <select
-                      id="bestDescribeYou"
-                      required
-                      value={bestDescribeYou}
-                      onChange={(e) => setBestDescribeYou(e.target.value)}
-                      className="register-input register-select"
-                    >
-                      <option value="" disabled>
-                        Select…
-                      </option>
-                      <option value="Fresh Graduate">Fresh Graduate</option>
-                      <option value="Early-Career Professional">
-                        Early-Career Professional
-                      </option>
-                    </select>
-                  </div>
-                </div>
-
                 <div>
                   <label htmlFor="considerMasters" className="register-label">
                     Master&apos;s in the U.S.?*
