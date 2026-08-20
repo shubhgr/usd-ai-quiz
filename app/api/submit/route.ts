@@ -5,7 +5,7 @@ import { respondSheetsError } from "@/lib/handleSheetsError";
 import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import { scoreFromAnswerString } from "@/lib/answerKey";
-import { questions } from "@/lib/questions";
+import { isAnswerStringComplete } from "@/lib/answerString";
 
 interface SubmitBody {
   pid?: string;
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       }
 
       const answerStr = (r.answers ?? "").trim().toLowerCase();
-      if (answerStr.length < questions.length) {
+      if (!isAnswerStringComplete(answerStr)) {
         return NextResponse.json(
           { error: "Not all questions have been answered" },
           { status: 400 }

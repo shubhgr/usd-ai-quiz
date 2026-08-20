@@ -9,6 +9,8 @@ import { requestEmbedStorageAccess } from "@/lib/embed";
 import { showToast } from "@/lib/toast";
 import { errorMessage, fetchJson } from "@/lib/fetchJson";
 import { prefetchStandings } from "@/lib/rankEstimate";
+import { isTabBlocked } from "@/lib/tabSwitch";
+import EmailBlocked from "@/components/EmailBlocked";
 
 const PHONE_MIN_DIGITS = 10;
 const PHONE_MAX_DIGITS = 12;
@@ -47,6 +49,7 @@ export default function LandingPage() {
 
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [blockedEmail, setBlockedEmail] = useState("");
 
   useEffect(() => {
     prefetchStandings();
@@ -143,6 +146,8 @@ export default function LandingPage() {
               token?: string;
               status?: string;
               existing?: boolean;
+              blocked?: boolean;
+              tabSwitches?: number;
             };
             const cur = loadSession();
             if (!cur || normalizeEmail(cur.email) !== normalizedEmail) return;
@@ -151,6 +156,7 @@ export default function LandingPage() {
               pid: String(regData.pid ?? cur.pid),
               token: String(regData.token ?? cur.token),
               registered: true,
+              tabSwitches: regData.tabSwitches ?? cur.tabSwitches ?? 0,
               completed: Boolean(
                 regData.existing && regData.status === "completed"
               ),
@@ -158,6 +164,10 @@ export default function LandingPage() {
                 regData.existing && regData.status === "completed"
               ),
             });
+            if (regData.blocked || regData.status === "blocked") {
+              setBlockedEmail(normalizedEmail);
+              return;
+            }
             if (regData.existing && regData.status === "completed") {
               window.location.replace(resultsUrl(normalizedEmail));
             }
@@ -172,18 +182,27 @@ export default function LandingPage() {
             pid?: string;
             token?: string;
             name?: string;
+            blocked?: boolean;
+            tabSwitches?: number;
+            rank?: number | null;
             score?: {
               totalScore: number;
               completionTimeSeconds: number;
               completedAt: string | null;
             } | null;
-            rank?: number | null;
           }>("/api/resume", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: normalizedEmail }),
             timeoutMs: 12_000,
           });
+          if (
+            resume.ok &&
+            (resume.data.blocked || resume.data.status === "blocked")
+          ) {
+            setBlockedEmail(normalizedEmail);
+            return;
+          }
           if (
             resume.ok &&
             resume.data.status === "completed" &&
@@ -231,6 +250,8 @@ export default function LandingPage() {
         token?: string;
         status?: string;
         existing?: boolean;
+        blocked?: boolean;
+        tabSwitches?: number;
         error?: string;
       }>("/api/register", {
         method: "POST",
@@ -273,6 +294,11 @@ export default function LandingPage() {
 
       scheduleSync();
 
+      if (reg.data.blocked || reg.data.status === "blocked") {
+        setBlockedEmail(normalizedEmail);
+        return;
+      }
+
       if (reg.data.existing && reg.data.status === "completed") {
         go(resultsUrl(normalizedEmail));
         return;
@@ -303,6 +329,10 @@ export default function LandingPage() {
       // Instant path: already have this email saved in this browser/iframe.
       const local = loadSession();
       if (local && normalizeEmail(local.email) === normalizedEmail && local.token) {
+        if (isTabBlocked(local.tabSwitches)) {
+          setBlockedEmail(normalizedEmail);
+          return;
+        }
         const page = local.completed ? "results" : "quiz";
         go(
           page === "results"
@@ -319,6 +349,8 @@ export default function LandingPage() {
         email?: string;
         status?: string;
         error?: string;
+        blocked?: boolean;
+        tabSwitches?: number;
         rank?: number | null;
         score?: {
           totalScore: number;
@@ -337,6 +369,11 @@ export default function LandingPage() {
           res.data.error ?? "Couldn't find a registration for that email.";
         setResumeError(message);
         showToast(message);
+        return;
+      }
+
+      if (res.data.blocked || res.data.status === "blocked") {
+        setBlockedEmail(normalizedEmail);
         return;
       }
 
@@ -384,6 +421,14 @@ export default function LandingPage() {
     } finally {
       setResumeSubmitting(false);
     }
+  }
+
+  if (blockedEmail) {
+    return (
+      <div className="binary-bg min-h-dvh">
+        <EmailBlocked email={blockedEmail} />
+      </div>
+    );
   }
 
   return (

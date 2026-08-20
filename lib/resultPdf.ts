@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import { COMPETITION_NAME } from "@/lib/config";
 import { questions } from "@/lib/questions";
+import { formatAnswerLetters } from "./answerString";
 
 const C = {
   bg: [255, 255, 255] as const,
@@ -188,7 +189,7 @@ export async function downloadResultPdf(data: ResultPdfInput) {
     const q = questions[i];
     const answer = data.answers[q.id];
     const pickedKey = answer?.answer;
-    const picked = pickedKey ? pickedKey.toUpperCase() : "None";
+    const picked = formatAnswerLetters(pickedKey);
 
     const correct = answer?.isCorrect;
 

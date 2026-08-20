@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { signToken } from "@/lib/token";
 import { gasRegister } from "@/lib/sheets";
 import { hasDatabaseUrl, query } from "@/lib/db";
+import { isTabBlocked } from "@/lib/tabSwitch";
 
 interface RegisterBody {
   pid?: string;
@@ -70,10 +71,28 @@ export async function POST(request: Request) {
       pid: string;
       status: string;
       last_activity_at: string | null;
-    }>("SELECT pid, status, last_activity_at FROM participants WHERE email = $1 LIMIT 1", [email]);
+      tab_switches: number | null;
+    }>(
+      "SELECT pid, status, last_activity_at, COALESCE(tab_switches, 0) AS tab_switches FROM participants WHERE email = $1 LIMIT 1",
+      [email]
+    );
 
     if (existingRows.length > 0) {
       const existing = existingRows[0]!;
+      const tabSwitches = Number(existing.tab_switches) || 0;
+      if (isTabBlocked(tabSwitches) || existing.status === "blocked") {
+        return NextResponse.json({
+          pid: existing.pid,
+          token: signToken(existing.pid),
+          status: "blocked",
+          lastActivityAt: existing.last_activity_at
+            ? new Date(existing.last_activity_at).toISOString()
+            : now.toISOString(),
+          existing: true,
+          blocked: true,
+          tabSwitches,
+        });
+      }
 
       await query(
         "INSERT INTO attempts(pid) VALUES ($1) ON CONFLICT (pid) DO NOTHING",
@@ -232,5 +251,7 @@ export async function POST(request: Request) {
     status: result.status,
     lastActivityAt: result.lastActivityAt,
     existing: result.existing,
+    blocked: Boolean(result.blocked) || result.status === "blocked",
+    tabSwitches: result.tabSwitches ?? 0,
   });
 }

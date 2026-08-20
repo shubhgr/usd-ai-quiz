@@ -7,6 +7,8 @@ import { normalizeEmail } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
 import { loadSession, saveSession } from "@/lib/clientSession";
 import type { LeaderboardRow, MeInfo } from "@/components/LeaderboardView";
+import { isTabBlocked } from "@/lib/tabSwitch";
+import EmailBlocked from "@/components/EmailBlocked";
 import {
   getLeaderboardClientCache,
   setCachedRank,
@@ -84,6 +86,7 @@ function Leaderboard() {
   const [me, setMe] = useState<MeInfo | null>(cached?.me ?? null);
   const [ready, setReady] = useState(Boolean(cached?.rows.length));
   const [error, setError] = useState("");
+  const [blocked, setBlocked] = useState(false);
   const [loading, setLoading] = useState(!cached?.rows.length);
   const [pendingName, setPendingName] = useState("");
   const rowsRef = useRef<LeaderboardRow[]>(cached?.rows ?? []);
@@ -104,6 +107,12 @@ function Leaderboard() {
 
     const local = loadSession();
     if (local && normalizeEmail(local.email) === email) {
+      if (isTabBlocked(local.tabSwitches)) {
+        setBlocked(true);
+        setCredsReady(true);
+        setLoading(false);
+        return;
+      }
       setMyName(local.name);
       if (local.pid) setPid(local.pid);
       if (local.token) setToken(local.token);
@@ -114,6 +123,13 @@ function Leaderboard() {
       if (cancelled) return;
       if (!creds) {
         setError("No registration found for this email.");
+        setCredsReady(true);
+        setLoading(false);
+        return;
+      }
+      if (creds.blocked || creds.status === "blocked" || isTabBlocked(creds.tabSwitches)) {
+        persistResolvedCredentials(creds);
+        setBlocked(true);
         setCredsReady(true);
         setLoading(false);
         return;
@@ -216,6 +232,10 @@ function Leaderboard() {
     );
     return () => clearInterval(interval);
   }, [loadLeaderboard, pendingName]);
+
+  if (blocked) {
+    return <EmailBlocked email={email} />;
+  }
 
   return (
     <main className="lb-page relative flex w-full flex-1 flex-col">

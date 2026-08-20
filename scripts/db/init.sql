@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS participants (
   consider_masters text NULL,
   planning_year text NULL,
   interests_most text NULL,
+  tab_switches integer NOT NULL DEFAULT 0,
   status text NOT NULL CHECK (status IN ('not_started', 'in_progress', 'completed')),
   registered_at timestamptz NOT NULL,
   last_activity_at timestamptz NOT NULL
@@ -33,6 +34,8 @@ ALTER TABLE participants ALTER COLUMN best_describe_you DROP NOT NULL;
 ALTER TABLE participants ALTER COLUMN consider_masters DROP NOT NULL;
 ALTER TABLE participants ALTER COLUMN planning_year DROP NOT NULL;
 ALTER TABLE participants ALTER COLUMN interests_most DROP NOT NULL;
+
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS tab_switches integer NOT NULL DEFAULT 0;
 
 -- Attempts table (answers + computed score/time)
 CREATE TABLE IF NOT EXISTS attempts (

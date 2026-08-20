@@ -13,6 +13,13 @@ import {
 } from "@/lib/resolveCredentials";
 import { allAnswersString } from "@/lib/quizScreens";
 import { prefetchStandings } from "@/lib/rankEstimate";
+import {
+  isQuestionAnswered,
+  normalizeChoice,
+  selectCountFor,
+} from "@/lib/answerString";
+import { isTabBlocked, TAB_SWITCH_LIMIT } from "@/lib/tabSwitch";
+import EmailBlocked from "@/components/EmailBlocked";
 
 const TOTAL_QUESTIONS = questions.length;
 
@@ -76,9 +83,29 @@ export default function QuizClient({ email }: { email: string }) {
       : {};
   });
   const [saveError, setSaveError] = useState("");
+  const [tabWarning, setTabWarning] = useState(false);
+  const [tabLeaveCount, setTabLeaveCount] = useState(() => {
+    const session = loadSession();
+    return session && normalizeEmail(session.email) === email
+      ? session.tabSwitches ?? 0
+      : 0;
+  });
+  const [blocked, setBlocked] = useState(() => {
+    const session = loadSession();
+    return Boolean(
+      session &&
+        normalizeEmail(session.email) === email &&
+        isTabBlocked(session.tabSwitches)
+    );
+  });
+  const tabCountRef = useRef(0);
 
   const submittingRef = useRef(false);
   const firstUnansweredRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    tabCountRef.current = tabLeaveCount;
+  }, [tabLeaveCount]);
 
   useEffect(() => {
     const flush = () => flushPendingOnUnload();
@@ -87,6 +114,71 @@ export default function QuizClient({ email }: { email: string }) {
       window.removeEventListener("pagehide", flush);
     };
   }, []);
+
+  useEffect(() => {
+    const block = (e: Event) => {
+      e.preventDefault();
+    };
+    const blockKeys = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        (key === "c" ||
+          key === "x" ||
+          key === "a" ||
+          key === "p" ||
+          key === "s" ||
+          key === "u")
+      ) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("copy", block);
+    document.addEventListener("cut", block);
+    document.addEventListener("paste", block);
+    document.addEventListener("contextmenu", block);
+    document.addEventListener("dragstart", block);
+    document.addEventListener("selectstart", block);
+    document.addEventListener("keydown", blockKeys);
+    return () => {
+      document.removeEventListener("copy", block);
+      document.removeEventListener("cut", block);
+      document.removeEventListener("paste", block);
+      document.removeEventListener("contextmenu", block);
+      document.removeEventListener("dragstart", block);
+      document.removeEventListener("selectstart", block);
+      document.removeEventListener("keydown", blockKeys);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const onVisibility = () => {
+      if (!document.hidden || submittingRef.current) return;
+      const next = tabCountRef.current + 1;
+      tabCountRef.current = next;
+      setTabLeaveCount(next);
+      const cur = loadSession();
+      if (cur) saveSession({ ...cur, tabSwitches: next });
+      if (pid && token) {
+        void fetch("/api/tab-switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pid, token, count: next }),
+        }).catch(() => undefined);
+      }
+      if (next >= TAB_SWITCH_LIMIT) {
+        setBlocked(true);
+        setTabWarning(false);
+        return;
+      }
+      setTabWarning(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ready, pid, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +190,14 @@ export default function QuizClient({ email }: { email: string }) {
 
     (async () => {
       const localFirst = loadSession();
+      if (
+        localFirst &&
+        normalizeEmail(localFirst.email) === email &&
+        isTabBlocked(localFirst.tabSwitches)
+      ) {
+        setBlocked(true);
+        return;
+      }
       if (
         localFirst &&
         normalizeEmail(localFirst.email) === email &&
@@ -124,6 +224,11 @@ export default function QuizClient({ email }: { email: string }) {
         try {
           const creds = await resolveCredentialsByEmail(email);
           if (cancelled) return;
+          if (creds?.blocked || creds?.status === "blocked" || isTabBlocked(creds?.tabSwitches)) {
+            persistResolvedCredentials(creds);
+            setBlocked(true);
+            return;
+          }
           if (creds?.status === "completed") {
             persistResolvedCredentials(creds);
             goResults();
@@ -138,6 +243,12 @@ export default function QuizClient({ email }: { email: string }) {
       if (cancelled) return;
       if (!creds) {
         setError("No registration found for this email.");
+        return;
+      }
+
+      if (creds.blocked || creds.status === "blocked" || isTabBlocked(creds.tabSwitches)) {
+        persistResolvedCredentials(creds);
+        setBlocked(true);
         return;
       }
 
@@ -327,14 +438,33 @@ export default function QuizClient({ email }: { email: string }) {
 
   const answer = useCallback(
     (questionId: string, option: string) => {
-      const prev = answers[questionId];
-      if (prev === option) return;
+      const question = questions.find((item) => item.id === questionId);
+      const need = question ? selectCountFor(question) : 1;
+      const prev = answers[questionId] ?? "";
 
-      setAnswers((a) => ({ ...a, [questionId]: option }));
+      let nextValue = option;
+      if (need > 1) {
+        const set = new Set(normalizeChoice(prev).split("").filter(Boolean));
+        if (set.has(option)) set.delete(option);
+        else if (set.size < need) set.add(option);
+        else return;
+        nextValue = [...set].sort().join("");
+      } else if (prev === option) {
+        return;
+      }
+
+      setAnswers((a) => {
+        const next = { ...a };
+        if (nextValue) next[questionId] = nextValue;
+        else delete next[questionId];
+        return next;
+      });
       setSaveError("");
 
       const session = loadSession();
-      const nextAnswers = { ...(session?.answers ?? answers), [questionId]: option };
+      const nextAnswers = { ...(session?.answers ?? answers) };
+      if (nextValue) nextAnswers[questionId] = nextValue;
+      else delete nextAnswers[questionId];
 
       if (session) {
         saveSession({
@@ -374,6 +504,10 @@ export default function QuizClient({ email }: { email: string }) {
     [answers, email, pid, token]
   );
 
+  if (blocked) {
+    return <EmailBlocked email={email} />;
+  }
+
   if (error) {
     return (
       <main className="flex flex-1 items-center justify-center px-6 py-16">
@@ -399,13 +533,50 @@ export default function QuizClient({ email }: { email: string }) {
     );
   }
 
-  const answeredCount = questions.filter((q) => answers[q.id] !== undefined).length;
+  const answeredCount = questions.filter((q) =>
+    isQuestionAnswered(q, answers[q.id])
+  ).length;
   const allComplete = answeredCount === TOTAL_QUESTIONS;
   const progressPct = Math.round((answeredCount / TOTAL_QUESTIONS) * 100);
-  const firstUnansweredId = questions.find((q) => !(q.id in answers))?.id;
+  const firstUnansweredId = questions.find(
+    (q) => !isQuestionAnswered(q, answers[q.id])
+  )?.id;
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div
+      className="quiz-nocopy flex min-h-dvh flex-col"
+      onCopy={(e) => e.preventDefault()}
+      onCut={(e) => e.preventDefault()}
+      onPaste={(e) => e.preventDefault()}
+      onContextMenu={(e) => e.preventDefault()}
+      onDragStart={(e) => e.preventDefault()}
+    >
+      {tabWarning && (
+        <div
+          className="quiz-tab-warning"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="quiz-tab-warning-title"
+        >
+          <div className="quiz-tab-warning-card">
+            <p id="quiz-tab-warning-title" className="quiz-tab-warning-title">
+              Don&apos;t switch tabs
+            </p>
+            <p className="quiz-tab-warning-body">
+              {tabLeaveCount > 1
+                ? `You left this page ${tabLeaveCount} times. Stay here until you submit.`
+                : "You left this page. Stay here until you submit."}
+            </p>
+            <button
+              type="button"
+              className="register-btn-primary"
+              onClick={() => setTabWarning(false)}
+            >
+              Okay
+            </button>
+          </div>
+        </div>
+      )}
       {/* Sticky header */}
       <header className="sticky top-0 z-20 border-b border-white/10 bg-[#001426]/95 px-4 py-4 backdrop-blur-md sm:px-6">
         <div className="mx-auto w-full max-w-6xl space-y-2">
@@ -440,7 +611,8 @@ export default function QuizClient({ email }: { email: string }) {
 
         <div className="glass-panel relative rounded-2xl border border-white/10 px-5 py-7 sm:px-8 sm:py-9">
           {questions.map((q, globalIndex) => {
-            const selected = answers[q.id];
+            const selected = answers[q.id] ?? "";
+            const need = selectCountFor(q);
             const isFirstUnanswered = q.id === firstUnansweredId;
             return (
               <article
@@ -453,18 +625,27 @@ export default function QuizClient({ email }: { email: string }) {
                     {globalIndex + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <h2 className="quiz-q-text">{q.text}</h2>
+                    <h2 className="quiz-q-text whitespace-pre-wrap">{q.text}</h2>
+                    {need > 1 && (
+                      <p className="mt-2 text-sm text-[#75BEE9]">
+                        Select {need} options
+                        {selected
+                          ? ` (${normalizeChoice(selected).length}/${need})`
+                          : ""}
+                      </p>
+                    )}
                     <fieldset className="mt-5 space-y-2.5 border-0 p-0">
                       <legend className="sr-only">
                         Question {globalIndex + 1} options
                       </legend>
                       {Object.entries(q.options).map(([key, label]) => {
-                        const isSelected = selected === key;
+                        if (!label) return null;
+                        const isSelected = normalizeChoice(selected).includes(key);
                         return (
                           <button
                             key={key}
                             type="button"
-                            role="radio"
+                            role={need > 1 ? "checkbox" : "radio"}
                             aria-checked={isSelected}
                             onClick={() => answer(q.id, key)}
                             className={`quiz-option ${

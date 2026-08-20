@@ -1,7 +1,7 @@
 import { loadSession, saveSession, clearSession } from "./clientSession";
 import { normalizeEmail } from "./quizUrls";
-import { questions } from "./questions";
-import { allAnswersString } from "./quizScreens";
+import { allAnswersString, answersFromString } from "./answerString";
+import { isTabBlocked } from "./tabSwitch";
 
 export interface ResolvedCredentials {
   pid: string;
@@ -16,16 +16,8 @@ export interface ResolvedCredentials {
     completedAt: string | null;
   } | null;
   rank?: number | null;
-}
-
-function answersFromString(answerStr: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  const raw = (answerStr || "").trim().toLowerCase();
-  for (let i = 0; i < raw.length && i < questions.length; i++) {
-    const ch = raw.charAt(i);
-    if (/^[abcd]$/.test(ch)) out[`q${i + 1}`] = ch;
-  }
-  return out;
+  tabSwitches?: number;
+  blocked?: boolean;
 }
 
 export async function resolveCredentialsByEmail(
@@ -40,6 +32,20 @@ export async function resolveCredentialsByEmail(
     normalizeEmail(local!.email) === normalized &&
     Boolean(local!.token) &&
     Boolean(local!.pid);
+
+  if (hasLocal && isTabBlocked(local!.tabSwitches)) {
+    return {
+      pid: local!.pid,
+      token: local!.token,
+      name: local!.name,
+      email: local!.email,
+      status: "blocked",
+      blocked: true,
+      tabSwitches: local!.tabSwitches ?? 0,
+      score: null,
+      rank: null,
+    };
+  }
 
   // Instant path only when we already have a score — otherwise we still need
   // Sheets (or /api/score) to finish scoring for results/leaderboard.
@@ -61,6 +67,7 @@ export async function resolveCredentialsByEmail(
       },
       rank: local!.rank ?? null,
       answers: allAnswersString(local!.answers),
+      tabSwitches: local!.tabSwitches ?? 0,
     };
   }
 
@@ -84,6 +91,8 @@ export async function resolveCredentialsByEmail(
         answers: data.answers ?? "",
         score: data.score ?? null,
         rank: data.rank ?? null,
+        tabSwitches: data.tabSwitches ?? 0,
+        blocked: Boolean(data.blocked) || data.status === "blocked",
       };
     }
   } catch {
@@ -105,6 +114,8 @@ export async function resolveCredentialsByEmail(
       score: null,
       rank: local!.rank ?? null,
       answers: allAnswersString(local!.answers),
+      tabSwitches: local!.tabSwitches ?? 0,
+      blocked: isTabBlocked(local!.tabSwitches),
     };
   }
 
@@ -137,9 +148,18 @@ export function persistResolvedCredentials(
         ? existing!.answers
         : fromAnswers,
     syncedAnswerString: existing?.syncedAnswerString ?? creds.answers ?? "",
-    completed: existing?.completed || creds.status === "completed",
-    submitted: existing?.submitted || creds.status === "completed",
-    score: existing?.score ?? creds.score?.totalScore ?? null,
+    completed:
+      creds.blocked || creds.status === "blocked"
+        ? false
+        : existing?.completed || creds.status === "completed",
+    submitted:
+      creds.blocked || creds.status === "blocked"
+        ? false
+        : existing?.submitted || creds.status === "completed",
+    score:
+      creds.blocked || creds.status === "blocked"
+        ? null
+        : existing?.score ?? creds.score?.totalScore ?? null,
     completionTimeSeconds:
       existing?.completionTimeSeconds ??
       creds.score?.completionTimeSeconds ??
@@ -147,6 +167,7 @@ export function persistResolvedCredentials(
     completedAt:
       existing?.completedAt ?? creds.score?.completedAt ?? null,
     rank: existing?.rank ?? creds.rank ?? null,
+    tabSwitches: Math.max(existing?.tabSwitches ?? 0, creds.tabSwitches ?? 0),
     ...patch,
   });
 }

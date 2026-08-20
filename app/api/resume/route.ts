@@ -3,6 +3,12 @@ import { signToken } from "@/lib/token";
 import { gasResume } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
 import { hasDatabaseUrl, query } from "@/lib/db";
+import { isTabBlocked } from "@/lib/tabSwitch";
+import {
+  clearResumeCache,
+  getResumeCache,
+  setResumeCache,
+} from "@/lib/resumeCache";
 
 const RESUME_TTL_MS = 60_000;
 
@@ -20,9 +26,9 @@ interface ResumeBody {
     completedAt: string | null;
   } | null;
   rank?: number | null;
+  tabSwitches?: number;
+  blocked?: boolean;
 }
-
-const resumeCache = new Map<string, { at: number; body: ResumeBody }>();
 
 async function resumeByEmail(email: string) {
   const normalized =
@@ -34,7 +40,7 @@ async function resumeByEmail(email: string) {
     return NextResponse.json({ error: "Invalid email address" }, { status: 400 });
   }
 
-  const cached = resumeCache.get(normalized);
+  const cached = getResumeCache(normalized);
   if (cached && Date.now() - cached.at <= RESUME_TTL_MS) {
     return NextResponse.json(cached.body);
   }
@@ -50,6 +56,7 @@ async function resumeByEmail(email: string) {
       score: number | null;
       completion_time_seconds: number | null;
       completed_at: string | null;
+      tab_switches: number | null;
     }>(
       `SELECT
          p.pid,
@@ -60,7 +67,8 @@ async function resumeByEmail(email: string) {
          a.answers,
          a.score,
          a.completion_time_seconds,
-         a.completed_at
+         a.completed_at,
+         COALESCE(p.tab_switches, 0) AS tab_switches
        FROM participants p
        LEFT JOIN attempts a ON a.pid = p.pid
        WHERE p.email = $1
@@ -73,6 +81,26 @@ async function resumeByEmail(email: string) {
     }
 
     const r = rows[0]!;
+    const tabSwitches = Number(r.tab_switches) || 0;
+    if (isTabBlocked(tabSwitches)) {
+      const body: ResumeBody = {
+        pid: r.pid,
+        token: signToken(r.pid),
+        name: r.name,
+        email: r.email,
+        status: "blocked",
+        lastActivityAt: r.last_activity_at
+          ? new Date(r.last_activity_at).toISOString()
+          : null,
+        answers: "",
+        score: null,
+        rank: null,
+        tabSwitches,
+        blocked: true,
+      };
+      setResumeCache(normalized, body);
+      return NextResponse.json(body);
+    }
     const answers = (r.answers ?? "").toString();
     const scoreObj =
       r.score !== null && r.completion_time_seconds !== null
@@ -119,9 +147,11 @@ async function resumeByEmail(email: string) {
       answers,
       score: scoreObj,
       rank,
+      tabSwitches,
+      blocked: false,
     };
 
-    resumeCache.set(normalized, { at: Date.now(), body });
+    setResumeCache(normalized, body);
     return NextResponse.json(body);
   }
 
@@ -137,8 +167,10 @@ async function resumeByEmail(email: string) {
       answers: existing.answers ?? "",
       score: existing.score ?? null,
       rank: existing.rank ?? null,
+      tabSwitches: existing.tabSwitches ?? 0,
+      blocked: Boolean(existing.blocked) || existing.status === "blocked",
     };
-    resumeCache.set(normalized, { at: Date.now(), body });
+    setResumeCache(normalized, body);
     return NextResponse.json(body);
   } catch (err) {
     const response = respondSheetsError(err);

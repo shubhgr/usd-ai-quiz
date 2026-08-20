@@ -20,8 +20,8 @@ export interface LocalSession {
   score: number | null;
   completionTimeSeconds: number | null;
   completedAt: string | null;
-  /** Cached leaderboard rank once known (avoids "calculating…" on revisit). */
-  rank?: number | null;
+  /** How many times they left the quiz tab. */
+  tabSwitches?: number;
 }
 
 const KEY = "usd-session";
@@ -41,6 +41,7 @@ function normalize(session: LocalSession): LocalSession {
     considerMasters: session.considerMasters ?? "",
     planningYear: session.planningYear ?? "",
     interestsMost: session.interestsMost ?? "",
+    tabSwitches: Number(session.tabSwitches) || 0,
   };
 }
 

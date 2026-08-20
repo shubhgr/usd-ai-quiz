@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { verifyToken } from "@/lib/token";
 import { questions } from "@/lib/questions";
 import { gradeAnswerString, scoreFromAnswerString } from "@/lib/answerKey";
+import {
+  isAnswerStringComplete,
+  isValidAnswerPayload,
+  splitAnswerString,
+} from "@/lib/answerString";
 
 interface ScoreBody {
   pid?: string;
@@ -33,14 +38,20 @@ export async function POST(request: Request) {
   if (!answers) {
     return NextResponse.json({ error: "answers is required" }, { status: 400 });
   }
-  if (answers.length > questions.length) {
+  if (!isValidAnswerPayload(answers)) {
+    return NextResponse.json({ error: "Invalid answer string" }, { status: 400 });
+  }
+  if (splitAnswerString(answers).length > questions.length) {
     return NextResponse.json(
       { error: "answers string is too long" },
       { status: 400 }
     );
   }
-  if (!/^[abcd]+$/.test(answers)) {
-    return NextResponse.json({ error: "Invalid answer string" }, { status: 400 });
+  if (!isAnswerStringComplete(answers)) {
+    return NextResponse.json(
+      { error: "Not all questions have been answered" },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json({

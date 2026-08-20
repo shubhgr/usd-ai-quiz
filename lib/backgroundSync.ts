@@ -1,7 +1,7 @@
 import { loadSession, saveSession } from "./clientSession";
 import { quizUrl, resultsUrl, leaderboardUrl } from "./quizUrls";
 import { allAnswersString } from "./quizScreens";
-import { questions } from "./questions";
+import { isAnswerSetComplete, isAnswerStringComplete } from "./answerString";
 import { showToast } from "./toast";
 
 const POST_ATTEMPTS = 2;
@@ -213,8 +213,8 @@ async function runOnce(): Promise<void> {
 
   // Fallback: explicit submit if answers synced but score not finalized yet.
   if (
-    allAnswersString(session.answers).length >= questions.length &&
-    session.syncedAnswerString.length >= questions.length
+    isAnswerSetComplete(session.answers) &&
+    isAnswerStringComplete(session.syncedAnswerString)
   ) {
     const res = await postJson("/api/submit", {
       pid: session.pid,

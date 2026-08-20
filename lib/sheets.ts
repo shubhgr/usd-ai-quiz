@@ -125,6 +125,8 @@ export interface RegistrationInfo {
   answers?: string;
   score?: ScoreInfo | null;
   rank?: number | null;
+  tabSwitches?: number;
+  blocked?: boolean;
 }
 
 export interface ResponseRow {
@@ -219,6 +221,8 @@ export async function gasResume(email: string): Promise<RegistrationInfo> {
       : result.score ?? null,
     rank: result.rank ?? null,
     answers: result.answers ?? "",
+    tabSwitches: result.tabSwitches ?? 0,
+    blocked: Boolean(result.blocked),
   };
 }
 
@@ -317,4 +321,15 @@ export async function gasLeaderboard(params: {
         }
       : null,
   };
+}
+
+export async function gasTabSwitch(params: {
+  pid: string;
+  count: number;
+}): Promise<{ ok: true; tabSwitches?: number; blocked?: boolean }> {
+  return gas<{ ok: true; tabSwitches?: number; blocked?: boolean }>({
+    action: "tabSwitch",
+    pid: params.pid,
+    count: params.count,
+  });
 }

@@ -3,6 +3,11 @@ import { verifyToken } from "@/lib/token";
 import { RESTART_AFTER_DAYS } from "@/lib/config";
 import { questions } from "@/lib/questions";
 import { isCorrectAnswer, scoreFromAnswerString } from "@/lib/answerKey";
+import {
+  isAnswerStringComplete,
+  isValidAnswerPayload,
+  splitAnswerString,
+} from "@/lib/answerString";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import {
   gasGetProgress,
@@ -90,12 +95,12 @@ async function fetchProgress(pid: string): Promise<{
       // Match the existing UI expectation: in `progress GET`, we return
       // isCorrect only when the participant is completed.
       const responses: ProgressInfo["responses"] = [];
-      const len = Math.min(answerStr.length, questions.length);
-      for (let i = 0; i < len; i++) {
+      const parts = splitAnswerString(answerStr);
+      for (let i = 0; i < parts.length; i++) {
         const questionId = `q${i + 1}`;
         responses.push({
           questionId,
-          answer: answerStr.charAt(i),
+          answer: parts[i],
           answeredAt: null,
         });
       }
@@ -248,11 +253,11 @@ export async function POST(request: Request) {
   if (!normalized) {
     return NextResponse.json({ error: "answers is required" }, { status: 400 });
   }
-  if (normalized.length > questions.length) {
-    return NextResponse.json({ error: "answers string is too long" }, { status: 400 });
-  }
-  if (!/^[abcd]+$/.test(normalized)) {
+  if (!isValidAnswerPayload(normalized)) {
     return NextResponse.json({ error: "Invalid answer string" }, { status: 400 });
+  }
+  if (splitAnswerString(normalized).length > questions.length) {
+    return NextResponse.json({ error: "answers string is too long" }, { status: 400 });
   }
 
   // Postgres-first path.
@@ -269,7 +274,7 @@ export async function POST(request: Request) {
       ? new Date(pidRow[0]!.registered_at!).getTime()
       : now.getTime();
 
-    const completed = normalized.length === questions.length;
+    const completed = isAnswerStringComplete(normalized);
     const score = completed ? scoreFromAnswerString(normalized) : null;
     const completionTimeSeconds = completed
       ? Math.max(0, Math.round((now.getTime() - registeredAt) / 1000))

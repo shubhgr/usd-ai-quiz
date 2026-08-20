@@ -1,4 +1,10 @@
 import { questions, questionsByCarousel } from "./questions";
+import {
+  allAnswersString,
+  isQuestionAnswered,
+} from "./answerString";
+
+export { allAnswersString } from "./answerString";
 
 export const QUESTIONS_PER_SCREEN = 3;
 export const carousels = questionsByCarousel();
@@ -11,20 +17,9 @@ export function isScreenComplete(
   screenIndex: number,
   answers: Record<string, string>
 ): boolean {
-  return screenQuestions(screenIndex).every((q) => answers[q.id] !== undefined);
-}
-
-/** Cumulative answer string from q1 onward, e.g. "abb" after 3 answers. */
-export function allAnswersString(
-  answers: Record<string, string>
-): string {
-  const chars: string[] = [];
-  for (const q of questions) {
-    const a = answers[q.id];
-    if (!a) break;
-    chars.push(a.toLowerCase());
-  }
-  return chars.join("");
+  return screenQuestions(screenIndex).every((q) =>
+    isQuestionAnswered(q, answers[q.id])
+  );
 }
 
 export function questionScreenIndex(questionId: string): number {

@@ -8,9 +8,10 @@
 //   Execute as: Me | Who has access: Anyone
 // Set Script Property API_KEY to match GAS_API_KEY in Next.js (.env.local)
 
-var TOTAL_QUESTIONS = 28;
-// Must match lib/answerKey.ts (q8=a, q18=a, all others=b)
-var CORRECT_KEY = "bbbbbbbabbbbbbbbbabbbbbbbbbb";
+var TOTAL_QUESTIONS = 26;
+var TAB_SWITCH_LIMIT = 5;
+// Must match lib/answerKey.ts CORRECT values (pipe-separated; multi-select is concatenated letters).
+var CORRECT_KEY = "b|b|b|c|b|c|c|a|b|b|b|b|b|c|c|b|ab|b|c|a|ab|b|a|a|bd|bcd";
 
 var REG_HEADERS = [
   "pid",
@@ -29,6 +30,7 @@ var REG_HEADERS = [
   "lastActivityAt",
   "completionTimeSeconds",
   "completedAt",
+  "tabSwitches",
 ];
 // Product source of truth for quiz UX:
 var RESP_HEADERS = [
@@ -40,6 +42,7 @@ var RESP_HEADERS = [
 var REG_STATUS = 12; // status
 var REG_REGISTERED_AT = 13; // registeredAt
 var REG_LAST = 14; // lastActivityAt
+var REG_TAB_SWITCHES = 17; // tabSwitches
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
 var RESP_TIME = 6;
@@ -63,7 +66,8 @@ function handle(e) {
     action === "register" ||
     action === "saveAnswers" ||
     action === "clearResponses" ||
-    action === "submit";
+    action === "submit" ||
+    action === "tabSwitch";
   if (needsLock) {
     lock = LockService.getScriptLock();
     if (!lock.tryLock(8000)) {
@@ -87,6 +91,7 @@ function handle(e) {
       case "saveAnswers":    result = actionSaveAnswers(params); break;
       case "clearResponses": result = actionClearResponses(params); break;
       case "submit":         result = actionSubmit(params); break;
+      case "tabSwitch":      result = actionTabSwitch(params); break;
       case "leaderboard":    result = actionLeaderboard(params); break;
       default:
         result = { ok: false, code: "UNKNOWN_ACTION", error: "Unknown action: " + action };
@@ -276,31 +281,68 @@ function normalizeAnswers(raw) {
   return String(raw || "").trim().toLowerCase();
 }
 
+function splitAnswers(raw) {
+  var s = normalizeAnswers(raw);
+  if (!s) return [];
+  if (s.indexOf("|") >= 0) {
+    var parts = s.split("|");
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = String(parts[i] || "").replace(/[^a-f]/g, "").split("").sort().join("");
+      if (p) out.push(p);
+    }
+    return out;
+  }
+  var chars = [];
+  for (var j = 0; j < s.length; j++) {
+    if (/^[a-f]$/.test(s.charAt(j))) chars.push(s.charAt(j));
+  }
+  return chars;
+}
+
+function correctParts() {
+  return String(CORRECT_KEY).split("|");
+}
+
 function validateAnswers(answers) {
   if (!answers) return "answers is required";
-  if (answers.length > TOTAL_QUESTIONS) return "answers string is too long";
-  if (!/^[abcd]+$/.test(answers)) return "answers must be only a, b, c, or d";
+  var parts = splitAnswers(answers);
+  if (parts.length > TOTAL_QUESTIONS) return "answers string is too long";
+  if (answers.indexOf("|") >= 0) {
+    if (!/^[a-f]+(\|[a-f]+)*$/.test(normalizeAnswers(answers))) {
+      return "answers must be a-f letters separated by |";
+    }
+  } else if (!/^[a-f]+$/.test(normalizeAnswers(answers))) {
+    return "answers must be only a–f";
+  }
   return null;
 }
 
 function scoreFromAnswers(answers) {
+  var parts = splitAnswers(answers);
+  var key = correctParts();
   var total = 0;
-  for (var i = 0; i < answers.length && i < TOTAL_QUESTIONS; i++) {
-    if (answers.charAt(i) === CORRECT_KEY.charAt(i)) total++;
+  for (var i = 0; i < key.length; i++) {
+    if (parts[i] === key[i]) total++;
   }
   return total;
 }
 
 function responsesFromString(answerStr) {
+  var parts = splitAnswers(answerStr);
   var out = [];
-  for (var i = 0; i < answerStr.length && i < TOTAL_QUESTIONS; i++) {
+  for (var i = 0; i < parts.length && i < TOTAL_QUESTIONS; i++) {
     out.push({
       questionId: questionIdAt(i),
-      answer: answerStr.charAt(i),
+      answer: parts[i],
       answeredAt: null,
     });
   }
   return out;
+}
+
+function answersComplete(answers) {
+  return splitAnswers(answers).length === TOTAL_QUESTIONS;
 }
 
 function markCompleted(reg, rowInfo, answers) {
@@ -376,6 +418,33 @@ function findRank(entries, pid, email) {
 
 // ---- Actions ----
 
+function readTabSwitches(reg) {
+  if (!reg) return 0;
+  return Math.max(0, Math.trunc(Number(reg.values[REG_TAB_SWITCHES - 1] || 0)));
+}
+
+function isTabBlockedCount(count) {
+  return count >= TAB_SWITCH_LIMIT;
+}
+
+function blockedPayload(reg) {
+  return {
+    ok: true,
+    blocked: true,
+    tabSwitches: readTabSwitches(reg),
+    existing: true,
+    pid: String(reg.values[0]),
+    name: String(reg.values[1]),
+    email: String(reg.values[2]),
+    status: "blocked",
+    score: null,
+    answers: "",
+    rank: null,
+    registeredAt: iso(reg.values[REG_REGISTERED_AT - 1]),
+    lastActivityAt: iso(reg.values[REG_LAST - 1]),
+  };
+}
+
 function actionRegister(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pid = String(params.pid || "");
@@ -387,6 +456,10 @@ function actionRegister(params) {
   // If they already finished, prefer Responses (product data).
   var existingResp = findResponseRowByEmail(ss, email);
   if (existingResp && hasScore(existingResp.values)) {
+    var completedReg = findRegistrationByEmail(ss, email) || findRegistrationByPid(ss, String(existingResp.values[0]));
+    if (completedReg && isTabBlockedCount(readTabSwitches(completedReg))) {
+      return blockedPayload(completedReg);
+    }
     var entries = buildLeaderboardEntries(ss);
     return {
       ok: true,
@@ -399,11 +472,16 @@ function actionRegister(params) {
       rank: findRank(entries, String(existingResp.values[0]), email),
       registeredAt: null,
       lastActivityAt: iso(existingResp.values[RESP_COMPLETED - 1]),
+      tabSwitches: completedReg ? readTabSwitches(completedReg) : 0,
+      blocked: false,
     };
   }
 
   var existing = findRegistrationByEmail(ss, email);
   if (existing) {
+    if (isTabBlockedCount(readTabSwitches(existing))) {
+      return blockedPayload(existing);
+    }
     return {
       ok: true,
       existing: true,
@@ -413,6 +491,8 @@ function actionRegister(params) {
       status: String(existing.values[REG_STATUS - 1]),
       registeredAt: iso(existing.values[REG_REGISTERED_AT - 1]),
       lastActivityAt: iso(existing.values[REG_LAST - 1]),
+      tabSwitches: readTabSwitches(existing),
+      blocked: false,
     };
   }
 
@@ -434,6 +514,7 @@ function actionRegister(params) {
     now,
     "",
     "",
+    0,
   ]);
 
   return {
@@ -452,6 +533,11 @@ function actionResume(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var email = String(params.email || "").trim().toLowerCase();
   if (!email) return { ok: false, code: "BAD_REQUEST", error: "Email is required" };
+
+  var found = findRegistrationByEmail(ss, email);
+  if (found && isTabBlockedCount(readTabSwitches(found))) {
+    return blockedPayload(found);
+  }
 
   // Product path: Responses first (score + time + rank in one sheet pass).
   var resp = findResponseRowByEmail(ss, email);
@@ -475,11 +561,12 @@ function actionResume(params) {
       lastActivityAt: score
         ? iso(resp.values[RESP_COMPLETED - 1])
         : null,
+      tabSwitches: found ? readTabSwitches(found) : 0,
+      blocked: false,
     };
   }
 
   // Lead-only: registered but never answered — still need pid to continue quiz.
-  var found = findRegistrationByEmail(ss, email);
   if (!found) {
     return { ok: false, code: "NOT_FOUND", error: "No registration found for this email." };
   }
@@ -495,6 +582,8 @@ function actionResume(params) {
     rank: null,
     registeredAt: iso(found.values[REG_REGISTERED_AT - 1]),
     lastActivityAt: iso(found.values[REG_LAST - 1]),
+    tabSwitches: readTabSwitches(found),
+    blocked: false,
   };
 }
 
@@ -568,7 +657,7 @@ function actionSaveAnswers(params) {
   rs.getRange(reg.row, REG_STATUS).setValue("in_progress");
   rs.getRange(reg.row, REG_LAST).setValue(now);
 
-  if (answers.length === TOTAL_QUESTIONS) {
+  if (answersComplete(answers)) {
     return markCompleted(reg, rowInfo, answers);
   }
 
@@ -598,6 +687,22 @@ function actionClearResponses(params) {
   return { ok: true };
 }
 
+function actionTabSwitch(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pid = String(params.pid || "");
+  if (!pid) return { ok: false, code: "BAD_REQUEST", error: "pid is required" };
+  var count = Math.max(0, Math.trunc(Number(params.count || 0)));
+  var reg = findRegistrationByPid(ss, pid);
+  if (!reg) return { ok: false, code: "NOT_FOUND", error: "Participant not found" };
+  var rs = ss.getSheetByName("Registration");
+  rs.getRange(reg.row, REG_TAB_SWITCHES).setValue(count);
+  var blocked = isTabBlockedCount(count);
+  if (blocked) {
+    rs.getRange(reg.row, REG_STATUS).setValue("blocked");
+  }
+  return { ok: true, tabSwitches: count, blocked: blocked };
+}
+
 function actionSubmit(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pid = String(params.pid || "");
@@ -619,7 +724,7 @@ function actionSubmit(params) {
   }
 
   var answerStr = normalizeAnswers(resp.values[RESP_ANSWERS - 1]);
-  if (answerStr.length < TOTAL_QUESTIONS) {
+  if (!answersComplete(answerStr)) {
     return { ok: false, code: "INCOMPLETE", error: "Not all questions have been answered" };
   }
 

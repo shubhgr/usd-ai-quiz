@@ -13,6 +13,7 @@ import {
 import { downloadResultPdf } from "@/lib/resultPdf";
 import { showToast } from "@/lib/toast";
 import { allAnswersString } from "@/lib/quizScreens";
+import { answersFromString } from "@/lib/answerString";
 import CourseFab from "@/components/CourseFab";
 import {
   getLeaderboardClientCache,
@@ -20,6 +21,8 @@ import {
   setLeaderboardClientCache,
 } from "@/lib/leaderboardClientCache";
 import { estimateRank, prefetchStandings } from "@/lib/rankEstimate";
+import { isTabBlocked } from "@/lib/tabSwitch";
+import EmailBlocked from "@/components/EmailBlocked";
 
 const REVEAL_MS = 500;
 
@@ -75,6 +78,15 @@ export default function ResultsClient({ email }: { email: string }) {
   const [pid, setPid] = useState("");
   const [token, setToken] = useState("");
   const [ready, setReady] = useState(false);
+  const [blocked, setBlocked] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const session = loadSession();
+    return Boolean(
+      session &&
+        normalizeEmail(session.email) === email &&
+        isTabBlocked(session.tabSwitches)
+    );
+  });
   const [copied, setCopied] = useState(false);
   const [revealCard, setRevealCard] = useState(false);
   const [rank, setRank] = useState<number | null>(() => {
@@ -96,6 +108,10 @@ export default function ResultsClient({ email }: { email: string }) {
   useEffect(() => {
     const session = loadSession();
     if (session && normalizeEmail(session.email) === email) {
+      if (isTabBlocked(session.tabSwitches)) {
+        setBlocked(true);
+        return;
+      }
       setPid(session.pid);
       setToken(session.token);
       setLocalTimeSeconds(session.completionTimeSeconds);
@@ -207,6 +223,11 @@ export default function ResultsClient({ email }: { email: string }) {
       setToken(creds.token);
       persistResolvedCredentials(creds);
 
+      if (creds.blocked || creds.status === "blocked" || isTabBlocked(creds.tabSwitches)) {
+        setBlocked(true);
+        return;
+      }
+
       // One Responses-backed resume payload can fill score + rank immediately.
       if (creds.score) {
         const preview: ResultsData = {
@@ -224,14 +245,10 @@ export default function ResultsClient({ email }: { email: string }) {
           answeredQuestionIds: [],
         };
         if (creds.answers) {
-          const raw = creds.answers.trim().toLowerCase();
-          for (let i = 0; i < raw.length && i < questions.length; i++) {
-            const ch = raw.charAt(i);
-            if (/^[abcd]$/.test(ch)) {
-              const id = questions[i].id;
-              preview.answers[id] = { answer: ch };
-              preview.answeredQuestionIds.push(id);
-            }
+          const parsed = answersFromString(creds.answers);
+          for (const [id, answer] of Object.entries(parsed)) {
+            preview.answers[id] = { answer };
+            preview.answeredQuestionIds.push(id);
           }
         }
         setData((current) => (current?.score ? current : preview));
@@ -259,16 +276,12 @@ export default function ResultsClient({ email }: { email: string }) {
               const cur = loadSession();
               if (cur) saveSession({ ...cur, score: totalScore });
               const answersMap: ResultsData["answers"] = {};
-              const raw = creds.answers.trim().toLowerCase();
-              for (let i = 0; i < raw.length && i < questions.length; i++) {
-                const ch = raw.charAt(i);
-                if (/^[abcd]$/.test(ch)) {
-                  const id = questions[i].id;
-                  answersMap[id] = {
-                    answer: ch,
-                    isCorrect: body.graded?.[id],
-                  };
-                }
+              const parsed = answersFromString(creds.answers);
+              for (const [id, answer] of Object.entries(parsed)) {
+                answersMap[id] = {
+                  answer,
+                  isCorrect: body.graded?.[id],
+                };
               }
               const time = cur?.completionTimeSeconds ?? 0;
               setData({
@@ -491,6 +504,10 @@ export default function ResultsClient({ email }: { email: string }) {
       setPdfBusy(false);
     }
   }, [data, pdfBusy, pid, token]);
+
+  if (blocked) {
+    return <EmailBlocked email={email} />;
+  }
 
   if (error) {
     return (
