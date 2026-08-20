@@ -4,6 +4,7 @@ export const UTM_PARAM_KEYS = [
   "utm_campaign",
   "utm_term",
   "utm_content",
+  "utm_id",
 ] as const;
 
 export type UtmParamKey = (typeof UTM_PARAM_KEYS)[number];

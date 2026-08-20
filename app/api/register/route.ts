@@ -38,6 +38,7 @@ interface RegisterBody {
   utm_campaign?: string;
   utm_term?: string;
   utm_content?: string;
+  utm_id?: string;
 }
 
 export async function POST(request: Request) {
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
         ? new Date(existing.last_activity_at).toISOString()
         : now.toISOString();
 
-      // Background mirror: keep Google Sheet updated.
+      // Background mirror: keep Google Sheet updated (incl. UTMs).
       void gasRegister({
         pid: existing.pid,
         name,
@@ -191,6 +192,7 @@ export async function POST(request: Request) {
         considerMasters: considerMasters ?? "",
         planningYear: planningYear ?? "",
         interestsMost: interestsMost ?? "",
+        ...utmPayload,
       }).catch(() => {
         // ignore
       });
@@ -257,7 +259,7 @@ export async function POST(request: Request) {
       [pid]
     );
 
-    // Background mirror: keep the Google Sheet updated with the same details.
+    // Background mirror: keep the Google Sheet updated with the same details + UTMs.
     // This must never block UI latency.
     void gasRegister({
       pid: inserted[0]?.pid ?? pid,
@@ -271,6 +273,7 @@ export async function POST(request: Request) {
       considerMasters: considerMasters ?? "",
       planningYear: planningYear ?? "",
       interestsMost: interestsMost ?? "",
+      ...utmPayload,
     }).catch(() => {
       // ignore (Sheets might be slow/unavailable; DB-first is the primary flow)
     });
@@ -308,6 +311,7 @@ export async function POST(request: Request) {
     considerMasters: considerMasters ?? "",
     planningYear: planningYear ?? "",
     interestsMost: interestsMost ?? "",
+    ...utmPayload,
   });
 
   postToZapier({

@@ -187,6 +187,13 @@ export async function gasRegister(params: {
   considerMasters?: string;
   planningYear?: string;
   interestsMost?: string;
+  pageUrl?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
+  utm_id?: string;
 }): Promise<RegistrationInfo & { existing: boolean }> {
   const result = await gas<RegistrationInfo & { existing: boolean }>({
     action: "register",
@@ -201,6 +208,13 @@ export async function gasRegister(params: {
     considerMasters: params.considerMasters ?? "",
     planningYear: params.planningYear ?? "",
     interestsMost: params.interestsMost ?? "",
+    pageUrl: params.pageUrl ?? "",
+    utm_source: params.utm_source ?? "",
+    utm_medium: params.utm_medium ?? "",
+    utm_campaign: params.utm_campaign ?? "",
+    utm_term: params.utm_term ?? "",
+    utm_content: params.utm_content ?? "",
+    utm_id: params.utm_id ?? "",
   });
   return {
     ...result,

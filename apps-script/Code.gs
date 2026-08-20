@@ -33,6 +33,13 @@ var REG_HEADERS = [
   "completedAt",
   "tabSwitches",
   "quizStartedAt",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+  "utm_id",
+  "pageUrl",
 ];
 // Product source of truth for quiz UX:
 var RESP_HEADERS = [
@@ -46,6 +53,13 @@ var REG_REGISTERED_AT = 13; // registeredAt
 var REG_LAST = 14; // lastActivityAt
 var REG_TAB_SWITCHES = 17; // tabSwitches
 var REG_QUIZ_STARTED_AT = 18; // quizStartedAt
+var REG_UTM_SOURCE = 19;
+var REG_UTM_MEDIUM = 20;
+var REG_UTM_CAMPAIGN = 21;
+var REG_UTM_TERM = 22;
+var REG_UTM_CONTENT = 23;
+var REG_UTM_ID = 24;
+var REG_PAGE_URL = 25;
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
 var RESP_TIME = 6;
@@ -477,6 +491,35 @@ function blockedPayload(reg) {
   };
 }
 
+function readUtmValue(params, key) {
+  var v = params[key];
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
+}
+
+function utmRowValues(params) {
+  return [
+    readUtmValue(params, "utm_source"),
+    readUtmValue(params, "utm_medium"),
+    readUtmValue(params, "utm_campaign"),
+    readUtmValue(params, "utm_term"),
+    readUtmValue(params, "utm_content"),
+    readUtmValue(params, "utm_id"),
+    readUtmValue(params, "pageUrl"),
+  ];
+}
+
+function writeUtmColumns(sheet, row, params) {
+  var values = utmRowValues(params);
+  // Only overwrite when at least one UTM / pageUrl is present.
+  var hasAny = false;
+  for (var i = 0; i < values.length; i++) {
+    if (values[i]) { hasAny = true; break; }
+  }
+  if (!hasAny) return;
+  sheet.getRange(row, REG_UTM_SOURCE, 1, values.length).setValues([values]);
+}
+
 function actionRegister(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var pid = String(params.pid || "");
@@ -491,6 +534,9 @@ function actionRegister(params) {
     var completedReg = findRegistrationByEmail(ss, email) || findRegistrationByPid(ss, String(existingResp.values[0]));
     if (completedReg && isTabBlockedCount(readTabSwitches(completedReg))) {
       return blockedPayload(completedReg);
+    }
+    if (completedReg) {
+      writeUtmColumns(ss.getSheetByName("Registration"), completedReg.row, params);
     }
     var entries = buildLeaderboardEntries(ss);
     return {
@@ -515,6 +561,16 @@ function actionRegister(params) {
     if (isTabBlockedCount(readTabSwitches(existing))) {
       return blockedPayload(existing);
     }
+    var rsExisting = ss.getSheetByName("Registration");
+    writeUtmColumns(rsExisting, existing.row, params);
+    // Keep profile fields fresh on re-register.
+    rsExisting.getRange(existing.row, 2).setValue(String(params.name || existing.values[1] || ""));
+    rsExisting.getRange(existing.row, 4).setValue(String(params.phone || existing.values[3] || ""));
+    rsExisting.getRange(existing.row, 7).setValue(String(params.linkedinUrl || existing.values[6] || ""));
+    rsExisting.getRange(existing.row, 8).setValue(String(params.bestDescribeYou || existing.values[7] || ""));
+    rsExisting.getRange(existing.row, 9).setValue(String(params.considerMasters || existing.values[8] || ""));
+    rsExisting.getRange(existing.row, 10).setValue(String(params.planningYear || existing.values[9] || ""));
+    rsExisting.getRange(existing.row, 11).setValue(String(params.interestsMost || existing.values[10] || ""));
     return {
       ok: true,
       existing: true,
@@ -531,6 +587,7 @@ function actionRegister(params) {
   }
 
   var now = new Date();
+  var utmVals = utmRowValues(params);
   ss.getSheetByName("Registration").appendRow([
     pid,
     String(params.name || ""),
@@ -550,6 +607,13 @@ function actionRegister(params) {
     "",
     0,
     "",
+    utmVals[0],
+    utmVals[1],
+    utmVals[2],
+    utmVals[3],
+    utmVals[4],
+    utmVals[5],
+    utmVals[6],
   ]);
 
   return {
