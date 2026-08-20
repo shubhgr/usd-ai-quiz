@@ -114,21 +114,6 @@ async function gas<T extends GasResponse>(
   throw wrapGasError(lastError);
 }
 
-export interface RegistrationInfo {
-  ok: true;
-  pid: string;
-  name: string;
-  email: string;
-  status: string;
-  registeredAt: string | null;
-  lastActivityAt: string | null;
-  answers?: string;
-  score?: ScoreInfo | null;
-  rank?: number | null;
-  tabSwitches?: number;
-  blocked?: boolean;
-}
-
 export interface ResponseRow {
   questionId: string;
   answer: string;
@@ -152,6 +137,23 @@ export interface ProgressInfo {
   responses: ResponseRow[];
   score: ScoreInfo | null;
   rank?: number | null;
+  quizStartedAt?: string | null;
+}
+
+export interface RegistrationInfo {
+  ok: true;
+  pid: string;
+  name: string;
+  email: string;
+  status: string;
+  registeredAt: string | null;
+  lastActivityAt: string | null;
+  answers?: string;
+  score?: ScoreInfo | null;
+  rank?: number | null;
+  tabSwitches?: number;
+  blocked?: boolean;
+  quizStartedAt?: string | null;
 }
 
 export interface LeaderboardEntry {
@@ -222,6 +224,9 @@ export async function gasResume(email: string): Promise<RegistrationInfo> {
     rank: result.rank ?? null,
     answers: result.answers ?? "",
     tabSwitches: result.tabSwitches ?? 0,
+    quizStartedAt: result.quizStartedAt
+      ? toIso(result.quizStartedAt)
+      : null,
     blocked: Boolean(result.blocked),
   };
 }
@@ -243,6 +248,9 @@ export async function gasGetProgress(pid: string): Promise<ProgressInfo> {
         }
       : null,
     rank: result.rank ?? null,
+    quizStartedAt: result.quizStartedAt
+      ? toIso(result.quizStartedAt)
+      : null,
   };
 }
 
@@ -332,4 +340,25 @@ export async function gasTabSwitch(params: {
     pid: params.pid,
     count: params.count,
   });
+}
+
+export async function gasQuizStart(params: {
+  pid: string;
+}): Promise<{
+  ok: true;
+  quizStartedAt?: string | null;
+  alreadyStarted?: boolean;
+}> {
+  const result = await gas<{
+    ok: true;
+    quizStartedAt?: string | null;
+    alreadyStarted?: boolean;
+  }>({
+    action: "quizStart",
+    pid: params.pid,
+  });
+  return {
+    ...result,
+    quizStartedAt: result.quizStartedAt ? toIso(result.quizStartedAt) : null,
+  };
 }

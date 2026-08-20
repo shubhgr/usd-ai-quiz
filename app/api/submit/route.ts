@@ -6,6 +6,7 @@ import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import { scoreFromAnswerString } from "@/lib/answerKey";
 import { isAnswerStringComplete } from "@/lib/answerString";
+import { isQuizTimeExpired, quizElapsedSeconds, quizStartMs } from "@/lib/quizTime";
 
 interface SubmitBody {
   pid?: string;
@@ -39,6 +40,7 @@ export async function POST(request: Request) {
         completion_time_seconds: number | null;
         completed_at: string | null;
         registered_at: string | null;
+        quiz_started_at: string | null;
       }>(
         `SELECT
            p.pid,
@@ -46,7 +48,8 @@ export async function POST(request: Request) {
            a.score,
            a.completion_time_seconds,
            a.completed_at,
-           p.registered_at
+           p.registered_at,
+           p.quiz_started_at
          FROM participants p
          JOIN attempts a ON a.pid = p.pid
          WHERE p.pid = $1
@@ -68,21 +71,18 @@ export async function POST(request: Request) {
       }
 
       const answerStr = (r.answers ?? "").trim().toLowerCase();
-      if (!isAnswerStringComplete(answerStr)) {
+      const now = new Date();
+      const startedAtMs = quizStartMs(r.quiz_started_at, r.registered_at, now.getTime());
+      const timedOut = isQuizTimeExpired(startedAtMs, now.getTime());
+
+      if (!isAnswerStringComplete(answerStr) && !timedOut) {
         return NextResponse.json(
           { error: "Not all questions have been answered" },
           { status: 400 }
         );
       }
 
-      const now = new Date();
-      const registeredAtMs = r.registered_at
-        ? new Date(r.registered_at).getTime()
-        : now.getTime();
-      const completionTimeSeconds = Math.max(
-        0,
-        Math.round((now.getTime() - registeredAtMs) / 1000)
-      );
+      const completionTimeSeconds = quizElapsedSeconds(startedAtMs, now.getTime());
 
       const totalScore = scoreFromAnswerString(answerStr);
 

@@ -533,6 +533,15 @@
     transition: width 0.4s ease;
   }
 
+  .quiz-timer {
+    color: #ffffff;
+  }
+
+  .quiz-timer--urgent {
+    color: #fbbf24;
+    animation: results-calc-pulse 1s ease-in-out infinite;
+  }
+
   .quiz-question-block {
     padding-bottom: 2rem;
     margin-bottom: 2rem;

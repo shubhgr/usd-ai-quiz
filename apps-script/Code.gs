@@ -10,6 +10,7 @@
 
 var TOTAL_QUESTIONS = 26;
 var TAB_SWITCH_LIMIT = 5;
+var QUIZ_TIME_LIMIT_SECONDS = 45 * 60;
 // Must match lib/answerKey.ts CORRECT values (pipe-separated; multi-select is concatenated letters).
 var CORRECT_KEY = "b|b|b|c|b|c|c|a|b|b|b|b|b|c|c|b|ab|b|c|a|ab|b|a|a|bd|bcd";
 
@@ -31,6 +32,7 @@ var REG_HEADERS = [
   "completionTimeSeconds",
   "completedAt",
   "tabSwitches",
+  "quizStartedAt",
 ];
 // Product source of truth for quiz UX:
 var RESP_HEADERS = [
@@ -43,6 +45,7 @@ var REG_STATUS = 12; // status
 var REG_REGISTERED_AT = 13; // registeredAt
 var REG_LAST = 14; // lastActivityAt
 var REG_TAB_SWITCHES = 17; // tabSwitches
+var REG_QUIZ_STARTED_AT = 18; // quizStartedAt
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
 var RESP_TIME = 6;
@@ -67,7 +70,8 @@ function handle(e) {
     action === "saveAnswers" ||
     action === "clearResponses" ||
     action === "submit" ||
-    action === "tabSwitch";
+    action === "tabSwitch" ||
+    action === "quizStart";
   if (needsLock) {
     lock = LockService.getScriptLock();
     if (!lock.tryLock(8000)) {
@@ -92,6 +96,7 @@ function handle(e) {
       case "clearResponses": result = actionClearResponses(params); break;
       case "submit":         result = actionSubmit(params); break;
       case "tabSwitch":      result = actionTabSwitch(params); break;
+      case "quizStart":      result = actionQuizStart(params); break;
       case "leaderboard":    result = actionLeaderboard(params); break;
       default:
         result = { ok: false, code: "UNKNOWN_ACTION", error: "Unknown action: " + action };
@@ -351,13 +356,29 @@ function answersComplete(answers) {
   return true;
 }
 
+function quizElapsedSeconds(startMs, nowMs) {
+  return Math.min(
+    QUIZ_TIME_LIMIT_SECONDS,
+    Math.max(0, Math.round((nowMs - startMs) / 1000))
+  );
+}
+
+function isQuizTimeExpired(startMs, nowMs) {
+  return quizElapsedSeconds(startMs, nowMs) >= QUIZ_TIME_LIMIT_SECONDS;
+}
+
+function readStartMs(reg) {
+  var startedAt = reg.values[REG_QUIZ_STARTED_AT - 1] || reg.values[REG_REGISTERED_AT - 1];
+  var startMs = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
+  if (isNaN(startMs)) startMs = Date.now();
+  return startMs;
+}
+
 function markCompleted(reg, rowInfo, answers) {
   var now = new Date();
   var totalScore = scoreFromAnswers(answers);
-  var startedAt = reg.values[REG_REGISTERED_AT - 1];
-  var startMs = startedAt instanceof Date ? startedAt.getTime() : new Date(startedAt).getTime();
-  if (isNaN(startMs)) startMs = now.getTime();
-  var completionTimeSeconds = Math.max(0, Math.round((now.getTime() - startMs) / 1000));
+  var startMs = readStartMs(reg);
+  var completionTimeSeconds = quizElapsedSeconds(startMs, now.getTime());
 
   // Write ALL quiz completion data to Responses (product source of truth).
   rowInfo.sheet.getRange(rowInfo.resp.row, RESP_SCORE).setValue(totalScore);
@@ -429,6 +450,11 @@ function readTabSwitches(reg) {
   return Math.max(0, Math.trunc(Number(reg.values[REG_TAB_SWITCHES - 1] || 0)));
 }
 
+function readQuizStartedAt(reg) {
+  if (!reg) return null;
+  return iso(reg.values[REG_QUIZ_STARTED_AT - 1]);
+}
+
 function isTabBlockedCount(count) {
   return count >= TAB_SWITCH_LIMIT;
 }
@@ -479,6 +505,7 @@ function actionRegister(params) {
       registeredAt: null,
       lastActivityAt: iso(existingResp.values[RESP_COMPLETED - 1]),
       tabSwitches: completedReg ? readTabSwitches(completedReg) : 0,
+      quizStartedAt: completedReg ? readQuizStartedAt(completedReg) : null,
       blocked: false,
     };
   }
@@ -498,6 +525,7 @@ function actionRegister(params) {
       registeredAt: iso(existing.values[REG_REGISTERED_AT - 1]),
       lastActivityAt: iso(existing.values[REG_LAST - 1]),
       tabSwitches: readTabSwitches(existing),
+      quizStartedAt: readQuizStartedAt(existing),
       blocked: false,
     };
   }
@@ -521,6 +549,7 @@ function actionRegister(params) {
     "",
     "",
     0,
+    "",
   ]);
 
   return {
@@ -532,6 +561,7 @@ function actionRegister(params) {
     status: "not_started",
     registeredAt: now.toISOString(),
     lastActivityAt: now.toISOString(),
+    quizStartedAt: null,
   };
 }
 
@@ -568,6 +598,7 @@ function actionResume(params) {
         ? iso(resp.values[RESP_COMPLETED - 1])
         : null,
       tabSwitches: found ? readTabSwitches(found) : 0,
+      quizStartedAt: found ? readQuizStartedAt(found) : null,
       blocked: false,
     };
   }
@@ -589,6 +620,7 @@ function actionResume(params) {
     registeredAt: iso(found.values[REG_REGISTERED_AT - 1]),
     lastActivityAt: iso(found.values[REG_LAST - 1]),
     tabSwitches: readTabSwitches(found),
+    quizStartedAt: readQuizStartedAt(found),
     blocked: false,
   };
 }
@@ -604,6 +636,7 @@ function actionGetProgress(params) {
     var score = scorePayload(resp.values);
     var status = score ? "completed" : answerStr ? "in_progress" : "not_started";
     var entries = score ? buildLeaderboardEntries(ss) : [];
+    var regForStart = findRegistrationByPid(ss, pid);
     return {
       ok: true,
       pid: pid,
@@ -615,6 +648,7 @@ function actionGetProgress(params) {
       responses: responsesFromString(answerStr),
       score: score,
       rank: score ? findRank(entries, pid, String(resp.values[2] || "").toLowerCase()) : null,
+      quizStartedAt: readQuizStartedAt(regForStart),
     };
   }
 
@@ -632,6 +666,7 @@ function actionGetProgress(params) {
     responses: [],
     score: null,
     rank: null,
+    quizStartedAt: readQuizStartedAt(reg),
   };
 }
 
@@ -663,7 +698,8 @@ function actionSaveAnswers(params) {
   rs.getRange(reg.row, REG_STATUS).setValue("in_progress");
   rs.getRange(reg.row, REG_LAST).setValue(now);
 
-  if (answersComplete(answers)) {
+  var startMs = readStartMs(reg);
+  if (answersComplete(answers) || isQuizTimeExpired(startMs, now.getTime())) {
     return markCompleted(reg, rowInfo, answers);
   }
 
@@ -688,6 +724,7 @@ function actionClearResponses(params) {
     var rs = ss.getSheetByName("Registration");
     rs.getRange(reg.row, REG_STATUS).setValue("not_started");
     rs.getRange(reg.row, REG_LAST).setValue(new Date());
+    rs.getRange(reg.row, REG_QUIZ_STARTED_AT).setValue("");
   }
 
   return { ok: true };
@@ -707,6 +744,37 @@ function actionTabSwitch(params) {
     rs.getRange(reg.row, REG_STATUS).setValue("blocked");
   }
   return { ok: true, tabSwitches: count, blocked: blocked };
+}
+
+function actionQuizStart(params) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var pid = String(params.pid || "");
+  if (!pid) return { ok: false, code: "BAD_REQUEST", error: "pid is required" };
+  var reg = findRegistrationByPid(ss, pid);
+  if (!reg) return { ok: false, code: "NOT_FOUND", error: "Participant not found" };
+
+  var existing = reg.values[REG_QUIZ_STARTED_AT - 1];
+  if (existing) {
+    return {
+      ok: true,
+      quizStartedAt: iso(existing),
+      alreadyStarted: true,
+    };
+  }
+
+  var now = new Date();
+  var rs = ss.getSheetByName("Registration");
+  rs.getRange(reg.row, REG_QUIZ_STARTED_AT).setValue(now);
+  rs.getRange(reg.row, REG_LAST).setValue(now);
+  var status = String(reg.values[REG_STATUS - 1] || "not_started");
+  if (status === "not_started") {
+    rs.getRange(reg.row, REG_STATUS).setValue("in_progress");
+  }
+  return {
+    ok: true,
+    quizStartedAt: now.toISOString(),
+    alreadyStarted: false,
+  };
 }
 
 function actionSubmit(params) {
@@ -730,7 +798,8 @@ function actionSubmit(params) {
   }
 
   var answerStr = normalizeAnswers(resp.values[RESP_ANSWERS - 1]);
-  if (!answersComplete(answerStr)) {
+  var startMs = readStartMs(reg);
+  if (!answersComplete(answerStr) && !isQuizTimeExpired(startMs, Date.now())) {
     return { ok: false, code: "INCOMPLETE", error: "Not all questions have been answered" };
   }
 

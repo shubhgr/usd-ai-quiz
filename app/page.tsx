@@ -133,6 +133,7 @@ export default function LandingPage() {
         score: null,
         completionTimeSeconds: null,
         completedAt: null,
+        quizStartedAt: null,
       });
 
       if (durable) {
@@ -239,6 +240,7 @@ export default function LandingPage() {
                 resume.data.score?.completionTimeSeconds ?? null,
               completedAt: resume.data.score?.completedAt ?? null,
               rank: resume.data.rank ?? null,
+              quizStartedAt: null,
             });
             window.location.replace(resultsUrl(normalizedEmail));
             return;
@@ -296,6 +298,7 @@ export default function LandingPage() {
         score: null,
         completionTimeSeconds: null,
         completedAt: null,
+        quizStartedAt: null,
       });
 
       scheduleSync();
@@ -357,6 +360,7 @@ export default function LandingPage() {
         error?: string;
         blocked?: boolean;
         tabSwitches?: number;
+        quizStartedAt?: string | null;
         rank?: number | null;
         score?: {
           totalScore: number;
@@ -408,6 +412,10 @@ export default function LandingPage() {
           completionTimeSeconds: res.data.score?.completionTimeSeconds ?? null,
           completedAt: res.data.score?.completedAt ?? null,
           rank: res.data.rank ?? null,
+          quizStartedAt: res.data.quizStartedAt
+            ? new Date(res.data.quizStartedAt).getTime()
+            : null,
+          tabSwitches: res.data.tabSwitches ?? 0,
         });
       }
 

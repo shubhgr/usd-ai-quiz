@@ -20,6 +20,8 @@ export interface LocalSession {
   score: number | null;
   completionTimeSeconds: number | null;
   completedAt: string | null;
+  /** When the user clicked Start (timer begins). Null until then. */
+  quizStartedAt?: number | null;
   /** Cached leaderboard rank once known. */
   rank?: number | null;
   /** How many times they left the quiz tab. */
@@ -43,6 +45,7 @@ function normalize(session: LocalSession): LocalSession {
     considerMasters: session.considerMasters ?? "",
     planningYear: session.planningYear ?? "",
     interestsMost: session.interestsMost ?? "",
+    quizStartedAt: session.quizStartedAt ?? null,
     tabSwitches: Number(session.tabSwitches) || 0,
   };
 }

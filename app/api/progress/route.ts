@@ -9,6 +9,7 @@ import {
   splitAnswerString,
 } from "@/lib/answerString";
 import { hasDatabaseUrl, query } from "@/lib/db";
+import { isQuizTimeExpired, quizElapsedSeconds, quizStartMs } from "@/lib/quizTime";
 import {
   gasGetProgress,
   gasSaveAnswers,
@@ -49,6 +50,7 @@ async function fetchProgress(pid: string): Promise<{
         completion_time_seconds: number | null;
         completed_at: string | null;
         registered_at: string | null;
+        quiz_started_at: string | null;
       }>(
         `SELECT
            p.pid,
@@ -57,6 +59,7 @@ async function fetchProgress(pid: string): Promise<{
            p.status,
            p.last_activity_at,
            p.registered_at,
+           p.quiz_started_at,
            a.answers,
            a.score,
            a.completion_time_seconds,
@@ -119,6 +122,9 @@ async function fetchProgress(pid: string): Promise<{
         responses,
         score: scoreObj,
         rank: null,
+        quizStartedAt: r.quiz_started_at
+          ? new Date(r.quiz_started_at).toISOString()
+          : null,
       };
 
       return progress;
@@ -147,6 +153,7 @@ async function fetchProgress(pid: string): Promise<{
       await query(
         `UPDATE participants
            SET status = 'not_started',
+               quiz_started_at = NULL,
                last_activity_at = $2
          WHERE pid = $1`,
         [pid, now.toISOString()]
@@ -219,6 +226,7 @@ export async function GET(request: NextRequest) {
       answeredQuestionIds,
       answers,
       score: progress.score,
+      quizStartedAt: progress.quizStartedAt ?? null,
     });
   } catch (err) {
     const response = respondSheetsError(err);
@@ -264,20 +272,26 @@ export async function POST(request: Request) {
   if (hasDatabaseUrl()) {
     const now = new Date();
 
-    const pidRow = await query<{ registered_at: string | null }>(
-      "SELECT registered_at FROM participants WHERE pid = $1 LIMIT 1",
+    const pidRow = await query<{
+      registered_at: string | null;
+      quiz_started_at: string | null;
+    }>(
+      "SELECT registered_at, quiz_started_at FROM participants WHERE pid = $1 LIMIT 1",
       [pid]
     );
     if (!pidRow.length) return notFound();
 
-    const registeredAt = pidRow[0]!.registered_at
-      ? new Date(pidRow[0]!.registered_at!).getTime()
-      : now.getTime();
+    const startedAt = quizStartMs(
+      pidRow[0]!.quiz_started_at,
+      pidRow[0]!.registered_at,
+      now.getTime()
+    );
 
-    const completed = isAnswerStringComplete(normalized);
+    const timedOut = isQuizTimeExpired(startedAt, now.getTime());
+    const completed = isAnswerStringComplete(normalized) || timedOut;
     const score = completed ? scoreFromAnswerString(normalized) : null;
     const completionTimeSeconds = completed
-      ? Math.max(0, Math.round((now.getTime() - registeredAt) / 1000))
+      ? quizElapsedSeconds(startedAt, now.getTime())
       : null;
     const completedAtIso = completed ? now.toISOString() : null;
 

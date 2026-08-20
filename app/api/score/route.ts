@@ -7,6 +7,8 @@ import {
   isValidAnswerPayload,
   splitAnswerString,
 } from "@/lib/answerString";
+import { hasDatabaseUrl, query } from "@/lib/db";
+import { isQuizTimeExpired, quizStartMs } from "@/lib/quizTime";
 
 interface ScoreBody {
   pid?: string;
@@ -47,7 +49,26 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!isAnswerStringComplete(answers)) {
+
+  let timedOut = false;
+  if (hasDatabaseUrl()) {
+    const rows = await query<{
+      quiz_started_at: string | null;
+      registered_at: string | null;
+    }>(
+      "SELECT quiz_started_at, registered_at FROM participants WHERE pid = $1 LIMIT 1",
+      [pid]
+    );
+    if (rows.length) {
+      const startedAtMs = quizStartMs(
+        rows[0]!.quiz_started_at,
+        rows[0]!.registered_at
+      );
+      timedOut = isQuizTimeExpired(startedAtMs);
+    }
+  }
+
+  if (!isAnswerStringComplete(answers) && !timedOut) {
     return NextResponse.json(
       { error: "Not all questions have been answered" },
       { status: 400 }

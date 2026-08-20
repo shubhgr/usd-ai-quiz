@@ -5,3 +5,7 @@
 export const RESTART_AFTER_DAYS = 30;
 
 export const COMPETITION_NAME = "USD Knowledge Challenge";
+
+/** Total allowed quiz duration from quizStartedAt. */
+export const QUIZ_TIME_LIMIT_MINUTES = 45;
+export const QUIZ_TIME_LIMIT_SECONDS = QUIZ_TIME_LIMIT_MINUTES * 60;

@@ -28,6 +28,7 @@ interface ResumeBody {
   rank?: number | null;
   tabSwitches?: number;
   blocked?: boolean;
+  quizStartedAt?: string | null;
 }
 
 async function resumeByEmail(email: string) {
@@ -57,6 +58,7 @@ async function resumeByEmail(email: string) {
       completion_time_seconds: number | null;
       completed_at: string | null;
       tab_switches: number | null;
+      quiz_started_at: string | null;
     }>(
       `SELECT
          p.pid,
@@ -68,7 +70,8 @@ async function resumeByEmail(email: string) {
          a.score,
          a.completion_time_seconds,
          a.completed_at,
-         COALESCE(p.tab_switches, 0) AS tab_switches
+         COALESCE(p.tab_switches, 0) AS tab_switches,
+         p.quiz_started_at
        FROM participants p
        LEFT JOIN attempts a ON a.pid = p.pid
        WHERE p.email = $1
@@ -149,6 +152,9 @@ async function resumeByEmail(email: string) {
       rank,
       tabSwitches,
       blocked: false,
+      quizStartedAt: r.quiz_started_at
+        ? new Date(r.quiz_started_at).toISOString()
+        : null,
     };
 
     setResumeCache(normalized, body);
@@ -169,6 +175,7 @@ async function resumeByEmail(email: string) {
       rank: existing.rank ?? null,
       tabSwitches: existing.tabSwitches ?? 0,
       blocked: Boolean(existing.blocked) || existing.status === "blocked",
+      quizStartedAt: existing.quizStartedAt ?? null,
     };
     setResumeCache(normalized, body);
     return NextResponse.json(body);

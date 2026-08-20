@@ -167,6 +167,7 @@ export function persistResolvedCredentials(
     completedAt:
       existing?.completedAt ?? creds.score?.completedAt ?? null,
     rank: existing?.rank ?? creds.rank ?? null,
+    quizStartedAt: existing?.quizStartedAt ?? null,
     tabSwitches: Math.max(existing?.tabSwitches ?? 0, creds.tabSwitches ?? 0),
     ...patch,
   });

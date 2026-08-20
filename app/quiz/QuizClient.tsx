@@ -19,6 +19,12 @@ import {
   selectCountFor,
 } from "@/lib/answerString";
 import { isTabBlocked, TAB_SWITCH_LIMIT, tabSwitchWarning } from "@/lib/tabSwitch";
+import {
+  formatQuizCountdown,
+  quizElapsedSeconds,
+  quizRemainingSeconds,
+} from "@/lib/quizTime";
+import { QUIZ_TIME_LIMIT_MINUTES } from "@/lib/config";
 import EmailBlocked from "@/components/EmailBlocked";
 
 const TOTAL_QUESTIONS = questions.length;
@@ -38,6 +44,7 @@ interface ProgressResponse {
     completionTimeSeconds: number;
     completedAt: string;
   } | null;
+  quizStartedAt?: string | null;
 }
 
 export default function QuizClient({ email }: { email: string }) {
@@ -98,11 +105,23 @@ export default function QuizClient({ email }: { email: string }) {
         isTabBlocked(session.tabSwitches)
     );
   });
+  const [quizStarted, setQuizStarted] = useState(() => {
+    const session = loadSession();
+    if (!session || normalizeEmail(session.email) !== email || session.completed) {
+      return false;
+    }
+    if (session.quizStartedAt) return true;
+    return Object.keys(session.answers ?? {}).length > 0;
+  });
+  const [starting, setStarting] = useState(false);
   const tabCountRef = useRef(0);
   const pendingTabWarningRef = useRef(false);
 
   const submittingRef = useRef(false);
+  const timeExpiredRef = useRef(false);
   const firstUnansweredRef = useRef<HTMLElement | null>(null);
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [timeExpired, setTimeExpired] = useState(false);
 
   useEffect(() => {
     tabCountRef.current = tabLeaveCount;
@@ -153,7 +172,7 @@ export default function QuizClient({ email }: { email: string }) {
   }, []);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !quizStarted) return;
     const onVisibility = () => {
       if (submittingRef.current) return;
 
@@ -187,7 +206,7 @@ export default function QuizClient({ email }: { email: string }) {
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [ready, pid, token]);
+  }, [ready, quizStarted, pid, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -333,22 +352,31 @@ export default function QuizClient({ email }: { email: string }) {
         for (const qid of Object.keys(data.answers)) {
           savedAnswers[qid] = data.answers[qid].answer;
         }
+        const hasAnswers = Object.keys(savedAnswers).length > 0;
+        const startedMs = data.quizStartedAt
+          ? new Date(data.quizStartedAt).getTime()
+          : hasAnswers
+            ? Date.now()
+            : null;
+        if (startedMs) setQuizStarted(true);
+        else setQuizStarted(false);
+        const existing = loadSession();
         saveSession({
           pid: creds.pid,
           token: creds.token,
           name: data.name,
           email: data.email,
-          phone: "",
-          workExperience: "",
-          domain: "",
-          linkedinUrl: "",
-          bestDescribeYou: "",
-          considerMasters: "",
-          planningYear: "",
-          interestsMost: "",
+          phone: existing?.phone ?? "",
+          workExperience: existing?.workExperience ?? "",
+          domain: existing?.domain ?? "",
+          linkedinUrl: existing?.linkedinUrl ?? "",
+          bestDescribeYou: existing?.bestDescribeYou ?? "",
+          considerMasters: existing?.considerMasters ?? "",
+          planningYear: existing?.planningYear ?? "",
+          interestsMost: existing?.interestsMost ?? "",
           registeredAt: data.lastActivityAt
             ? new Date(data.lastActivityAt).getTime()
-            : Date.now(),
+            : existing?.registeredAt ?? Date.now(),
           registered: true,
           answers: savedAnswers,
           syncedAnswerString: allAnswersString(savedAnswers),
@@ -357,6 +385,8 @@ export default function QuizClient({ email }: { email: string }) {
           score: data.score?.totalScore ?? null,
           completionTimeSeconds: data.score?.completionTimeSeconds ?? null,
           completedAt: data.score?.completedAt ?? null,
+          quizStartedAt: startedMs,
+          tabSwitches: existing?.tabSwitches ?? 0,
         });
         setAnswers(savedAnswers);
         scheduleSync();
@@ -370,17 +400,51 @@ export default function QuizClient({ email }: { email: string }) {
   }, [email, linkResults]);
 
   useEffect(() => {
-    if (!ready || !firstUnansweredRef.current) return;
+    if (!ready || !quizStarted || !firstUnansweredRef.current) return;
     firstUnansweredRef.current.scrollIntoView({
       behavior: "smooth",
       block: "center",
     });
-  }, [ready]);
+  }, [ready, quizStarted]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !quizStarted) return;
     prefetchStandings();
-  }, [ready]);
+  }, [ready, quizStarted]);
+
+  const startQuiz = useCallback(async () => {
+    if (starting || quizStarted) return;
+    setStarting(true);
+    const startedAt = Date.now();
+    const session = loadSession();
+    if (session) {
+      saveSession({ ...session, quizStartedAt: startedAt });
+    }
+    setQuizStarted(true);
+
+    if (pid && token) {
+      try {
+        const res = await fetch("/api/quiz-start", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pid, token }),
+        });
+        if (res.ok) {
+          const body = (await res.json()) as { quizStartedAt?: string | null };
+          if (body.quizStartedAt) {
+            const serverMs = new Date(body.quizStartedAt).getTime();
+            const cur = loadSession();
+            if (cur && !Number.isNaN(serverMs)) {
+              saveSession({ ...cur, quizStartedAt: serverMs });
+            }
+          }
+        }
+      } catch {
+        // Local start time still applies if the API is slow.
+      }
+    }
+    setStarting(false);
+  }, [starting, quizStarted, pid, token]);
 
   const submit = useCallback(() => {
     if (submittingRef.current) return;
@@ -388,11 +452,12 @@ export default function QuizClient({ email }: { email: string }) {
     setSaveError("");
 
     const session = loadSession();
-    const registeredAt = session?.registeredAt ?? Date.now();
+    const startedAt =
+      session?.quizStartedAt ?? session?.registeredAt ?? Date.now();
     const completedAt = new Date();
-    const completionTimeSeconds = Math.max(
-      0,
-      Math.round((completedAt.getTime() - registeredAt) / 1000)
+    const completionTimeSeconds = quizElapsedSeconds(
+      startedAt,
+      completedAt.getTime()
     );
     const apiPid = session?.pid ?? pid;
     const apiToken = session?.token ?? token;
@@ -411,7 +476,8 @@ export default function QuizClient({ email }: { email: string }) {
       considerMasters: session?.considerMasters ?? "",
       planningYear: session?.planningYear ?? "",
       interestsMost: session?.interestsMost ?? "",
-      registeredAt,
+      registeredAt: session?.registeredAt ?? Date.now(),
+      quizStartedAt: startedAt,
       registered: session?.registered ?? false,
       answers,
       syncedAnswerString: session?.syncedAnswerString ?? "",
@@ -449,6 +515,33 @@ export default function QuizClient({ email }: { email: string }) {
     scheduleSync();
     router.replace(linkResults);
   }, [answers, pid, token, email, router, linkResults]);
+
+  useEffect(() => {
+    if (!ready || !quizStarted) return;
+
+    const tick = () => {
+      const session = loadSession();
+      const startedAt = session?.quizStartedAt;
+      if (!startedAt) return;
+
+      const remaining = quizRemainingSeconds(startedAt);
+      setRemainingSeconds(remaining);
+
+      if (
+        remaining <= 0 &&
+        !timeExpiredRef.current &&
+        !submittingRef.current
+      ) {
+        timeExpiredRef.current = true;
+        setTimeExpired(true);
+        submit();
+      }
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [ready, quizStarted, submit]);
 
   const answer = useCallback(
     (questionId: string, option: string) => {
@@ -547,6 +640,38 @@ export default function QuizClient({ email }: { email: string }) {
     );
   }
 
+  if (!quizStarted) {
+    return (
+      <div className="binary-bg flex min-h-dvh flex-col">
+        <main className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center px-5 py-12 sm:px-8">
+          <div className="register-form-panel w-full p-6 text-center sm:p-8">
+            <h1 className="text-2xl font-bold text-white sm:text-3xl">
+              Ready to begin?
+            </h1>
+            <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
+              You&apos;re registered for the AI Grand Prix. The {QUIZ_TIME_LIMIT_MINUTES}-minute
+              timer starts when you click Start — stay on this page until you submit.
+            </p>
+            <ul className="mt-5 space-y-2 text-left text-sm text-slate-400">
+              <li>• {TOTAL_QUESTIONS} questions</li>
+              <li>• {QUIZ_TIME_LIMIT_MINUTES} minutes to complete</li>
+              <li>• Switching tabs may lead to disqualification</li>
+              <li>• You can only attempt this challenge once</li>
+            </ul>
+            <button
+              type="button"
+              onClick={() => void startQuiz()}
+              disabled={starting}
+              className="register-btn-primary mt-7"
+            >
+              {starting ? "Starting…" : "Start the Quiz"}
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const answeredCount = questions.filter((q) =>
     isQuestionAnswered(q, answers[q.id])
   ).length;
@@ -612,10 +737,28 @@ export default function QuizClient({ email }: { email: string }) {
             <p className="text-sm font-medium text-slate-300">
               Questions answered
             </p>
-            <p className="text-sm tabular-nums text-white">
-              <span className="font-bold text-[#75BEE9]">{answeredCount}</span>
-              <span className="text-slate-500"> / {TOTAL_QUESTIONS}</span>
-            </p>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <p className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  Time left
+                </p>
+                <p
+                  className={`quiz-timer text-sm tabular-nums font-bold ${
+                    remainingSeconds !== null && remainingSeconds <= 300
+                      ? "quiz-timer--urgent"
+                      : ""
+                  }`}
+                >
+                  {remainingSeconds !== null
+                    ? formatQuizCountdown(remainingSeconds)
+                    : "—"}
+                </p>
+              </div>
+              <p className="text-sm tabular-nums text-white">
+                <span className="font-bold text-[#75BEE9]">{answeredCount}</span>
+                <span className="text-slate-500"> / {TOTAL_QUESTIONS}</span>
+              </p>
+            </div>
           </div>
           <div className="quiz-progress-track" aria-hidden="true">
             <div
@@ -729,10 +872,10 @@ export default function QuizClient({ email }: { email: string }) {
           <button
             type="button"
             onClick={submit}
-            disabled={!allComplete}
+            disabled={!allComplete && !timeExpired}
             className="cta-button-gradient shrink-0 rounded-lg px-8 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Submit
+            {timeExpired ? "Submitting…" : "Submit"}
           </button>
         </div>
       </footer>

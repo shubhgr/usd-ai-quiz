@@ -36,6 +36,7 @@ ALTER TABLE participants ALTER COLUMN planning_year DROP NOT NULL;
 ALTER TABLE participants ALTER COLUMN interests_most DROP NOT NULL;
 
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS tab_switches integer NOT NULL DEFAULT 0;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS quiz_started_at timestamptz NULL;
 
 -- Attempts table (answers + computed score/time)
 CREATE TABLE IF NOT EXISTS attempts (
