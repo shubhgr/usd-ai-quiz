@@ -18,7 +18,7 @@ import {
   normalizeChoice,
   selectCountFor,
 } from "@/lib/answerString";
-import { isTabBlocked, TAB_SWITCH_LIMIT } from "@/lib/tabSwitch";
+import { isTabBlocked, TAB_SWITCH_LIMIT, tabSwitchWarning } from "@/lib/tabSwitch";
 import EmailBlocked from "@/components/EmailBlocked";
 
 const TOTAL_QUESTIONS = questions.length;
@@ -99,6 +99,7 @@ export default function QuizClient({ email }: { email: string }) {
     );
   });
   const tabCountRef = useRef(0);
+  const pendingTabWarningRef = useRef(false);
 
   const submittingRef = useRef(false);
   const firstUnansweredRef = useRef<HTMLElement | null>(null);
@@ -154,25 +155,35 @@ export default function QuizClient({ email }: { email: string }) {
   useEffect(() => {
     if (!ready) return;
     const onVisibility = () => {
-      if (!document.hidden || submittingRef.current) return;
-      const next = tabCountRef.current + 1;
-      tabCountRef.current = next;
-      setTabLeaveCount(next);
-      const cur = loadSession();
-      if (cur) saveSession({ ...cur, tabSwitches: next });
-      if (pid && token) {
-        void fetch("/api/tab-switch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pid, token, count: next }),
-        }).catch(() => undefined);
-      }
-      if (next >= TAB_SWITCH_LIMIT) {
-        setBlocked(true);
-        setTabWarning(false);
+      if (submittingRef.current) return;
+
+      if (document.hidden) {
+        const next = tabCountRef.current + 1;
+        tabCountRef.current = next;
+        setTabLeaveCount(next);
+        const cur = loadSession();
+        if (cur) saveSession({ ...cur, tabSwitches: next });
+        if (pid && token) {
+          void fetch("/api/tab-switch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pid, token, count: next }),
+          }).catch(() => undefined);
+        }
+        if (next >= TAB_SWITCH_LIMIT) {
+          setBlocked(true);
+          setTabWarning(false);
+          pendingTabWarningRef.current = false;
+          return;
+        }
+        pendingTabWarningRef.current = true;
         return;
       }
-      setTabWarning(true);
+
+      if (pendingTabWarningRef.current) {
+        pendingTabWarningRef.current = false;
+        setTabWarning(true);
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -556,6 +567,7 @@ export default function QuizClient({ email }: { email: string }) {
       block: "center",
     });
   };
+  const activeTabWarning = tabSwitchWarning(tabLeaveCount);
 
   return (
     <div
@@ -566,7 +578,7 @@ export default function QuizClient({ email }: { email: string }) {
       onContextMenu={(e) => e.preventDefault()}
       onDragStart={(e) => e.preventDefault()}
     >
-      {tabWarning && (
+      {tabWarning && activeTabWarning && (
         <div
           className="quiz-tab-warning"
           role="alertdialog"
@@ -575,12 +587,10 @@ export default function QuizClient({ email }: { email: string }) {
         >
           <div className="quiz-tab-warning-card">
             <p id="quiz-tab-warning-title" className="quiz-tab-warning-title">
-              Don&apos;t switch tabs
+              {activeTabWarning.title}
             </p>
             <p className="quiz-tab-warning-body">
-              {tabLeaveCount > 1
-                ? `You left this page ${tabLeaveCount} times. Stay here until you submit.`
-                : "You left this page. Stay here until you submit."}
+              {activeTabWarning.body}
             </p>
             <button
               type="button"

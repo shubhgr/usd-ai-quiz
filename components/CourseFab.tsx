@@ -24,7 +24,7 @@ export default function CourseFab() {
           />
         </svg>
       </span>
-      Check out the Course
+      Take Your AI Skills Further →
     </a>
   );
 }
