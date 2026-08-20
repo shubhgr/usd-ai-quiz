@@ -224,7 +224,12 @@ export default function QuizClient({ email }: { email: string }) {
         try {
           const creds = await resolveCredentialsByEmail(email);
           if (cancelled) return;
-          if (creds?.blocked || creds?.status === "blocked" || isTabBlocked(creds?.tabSwitches)) {
+          if (
+            creds &&
+            (creds.blocked ||
+              creds.status === "blocked" ||
+              isTabBlocked(creds.tabSwitches))
+          ) {
             persistResolvedCredentials(creds);
             setBlocked(true);
             return;

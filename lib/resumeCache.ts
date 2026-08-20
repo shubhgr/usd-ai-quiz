@@ -1,12 +1,10 @@
-type ResumeCacheBody = Record<string, unknown>;
-
-const resumeCache = new Map<string, { at: number; body: ResumeCacheBody }>();
+const resumeCache = new Map<string, { at: number; body: unknown }>();
 
 export function getResumeCache(email: string) {
   return resumeCache.get(email);
 }
 
-export function setResumeCache(email: string, body: ResumeCacheBody) {
+export function setResumeCache(email: string, body: unknown) {
   resumeCache.set(email, { at: Date.now(), body });
 }
 

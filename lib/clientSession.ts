@@ -20,6 +20,8 @@ export interface LocalSession {
   score: number | null;
   completionTimeSeconds: number | null;
   completedAt: string | null;
+  /** Cached leaderboard rank once known. */
+  rank?: number | null;
   /** How many times they left the quiz tab. */
   tabSwitches?: number;
 }
