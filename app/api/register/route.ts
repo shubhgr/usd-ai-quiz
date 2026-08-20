@@ -4,6 +4,7 @@ import { signToken } from "@/lib/token";
 import { gasRegister } from "@/lib/sheets";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import { isTabBlocked } from "@/lib/tabSwitch";
+import { utmFromRegisterBody } from "@/lib/utm";
 
 // Zapier Catch Hook for lead capture.
 // Kept server-side so the URL isn't exposed to the browser bundle.
@@ -31,6 +32,12 @@ interface RegisterBody {
   considerMasters?: string;
   planningYear?: string;
   interestsMost?: string;
+  pageUrl?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_term?: string;
+  utm_content?: string;
 }
 
 export async function POST(request: Request) {
@@ -78,6 +85,7 @@ export async function POST(request: Request) {
       : crypto.randomUUID();
 
   const now = new Date();
+  const utmPayload = utmFromRegisterBody(body as Record<string, unknown>);
 
   const zapierBase = {
     source: "usd-ai-quiz",
@@ -93,6 +101,7 @@ export async function POST(request: Request) {
     workExperience: workExperience ?? "",
     domain: domain ?? "",
     registeredAt: now.toISOString(),
+    ...utmPayload,
   } satisfies Record<string, unknown>;
 
   // Postgres-first when DATABASE_URL is present.

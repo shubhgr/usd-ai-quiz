@@ -2,6 +2,7 @@ import { loadSession, saveSession } from "./clientSession";
 import { quizUrl, resultsUrl, leaderboardUrl } from "./quizUrls";
 import { allAnswersString } from "./quizScreens";
 import { isAnswerSetComplete, isAnswerStringComplete } from "./answerString";
+import { attributionForRegister } from "./utm";
 import { showToast } from "./toast";
 
 const POST_ATTEMPTS = 2;
@@ -160,6 +161,7 @@ async function runOnce(): Promise<void> {
         considerMasters: session.considerMasters,
         planningYear: session.planningYear,
         interestsMost: session.interestsMost,
+        ...attributionForRegister(),
     });
 
     if (!reg.ok) {
@@ -335,6 +337,7 @@ export function flushPendingOnUnload(): void {
           considerMasters: session.considerMasters,
           planningYear: session.planningYear,
           interestsMost: session.interestsMost,
+          ...attributionForRegister(),
         })
       );
     } catch {

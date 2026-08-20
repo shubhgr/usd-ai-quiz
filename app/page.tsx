@@ -11,6 +11,10 @@ import { errorMessage, fetchJson } from "@/lib/fetchJson";
 import { prefetchStandings } from "@/lib/rankEstimate";
 import { isTabBlocked } from "@/lib/tabSwitch";
 import EmailBlocked from "@/components/EmailBlocked";
+import {
+  attributionForRegister,
+  captureLandingAttribution,
+} from "@/lib/utm";
 
 const PHONE_MIN_DIGITS = 10;
 const PHONE_MAX_DIGITS = 12;
@@ -53,6 +57,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     prefetchStandings();
+    captureLandingAttribution();
   }, []);
 
   async function handleRegister(e: FormEvent) {
@@ -103,6 +108,7 @@ export default function LandingPage() {
         considerMasters,
         planningYear,
         interestsMost,
+        ...attributionForRegister(),
       };
 
       const durable = saveSession({
