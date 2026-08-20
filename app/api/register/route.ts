@@ -5,6 +5,20 @@ import { gasRegister } from "@/lib/sheets";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import { isTabBlocked } from "@/lib/tabSwitch";
 
+// Zapier Catch Hook for lead capture.
+// Kept server-side so the URL isn't exposed to the browser bundle.
+const ZAPIER_CATCH_HOOK_URL =
+  "https://hooks.zapier.com/hooks/catch/7733500/4tsfpe0/";
+
+function postToZapier(payload: Record<string, unknown>) {
+  // Fire-and-forget: never block UI registration flow.
+  void fetch(ZAPIER_CATCH_HOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => undefined);
+}
+
 interface RegisterBody {
   pid?: string;
   name?: string;
@@ -65,6 +79,22 @@ export async function POST(request: Request) {
 
   const now = new Date();
 
+  const zapierBase = {
+    source: "usd-ai-quiz",
+    competition: "AI Grand Prix",
+    name,
+    email,
+    phone,
+    linkedinUrl: linkedinUrl ?? "",
+    bestDescribeYou: bestDescribeYou ?? "",
+    considerMasters: considerMasters ?? "",
+    planningYear: planningYear ?? "",
+    interestsMost: interestsMost ?? "",
+    workExperience: workExperience ?? "",
+    domain: domain ?? "",
+    registeredAt: now.toISOString(),
+  } satisfies Record<string, unknown>;
+
   // Postgres-first when DATABASE_URL is present.
   if (hasDatabaseUrl()) {
     const existingRows = await query<{
@@ -81,6 +111,14 @@ export async function POST(request: Request) {
       const existing = existingRows[0]!;
       const tabSwitches = Number(existing.tab_switches) || 0;
       if (isTabBlocked(tabSwitches) || existing.status === "blocked") {
+        postToZapier({
+          ...zapierBase,
+          pid: existing.pid,
+          existing: true,
+          blocked: true,
+          status: existing.status,
+          tabSwitches,
+        });
         return NextResponse.json({
           pid: existing.pid,
           token: signToken(existing.pid),
@@ -146,6 +184,15 @@ export async function POST(request: Request) {
         interestsMost: interestsMost ?? "",
       }).catch(() => {
         // ignore
+      });
+
+      postToZapier({
+        ...zapierBase,
+        pid: existing.pid,
+        existing: true,
+        blocked: false,
+        status: existing.status,
+        tabSwitches,
       });
 
       return NextResponse.json({
@@ -219,6 +266,15 @@ export async function POST(request: Request) {
       // ignore (Sheets might be slow/unavailable; DB-first is the primary flow)
     });
 
+    postToZapier({
+      ...zapierBase,
+      pid: inserted[0]?.pid ?? pid,
+      existing: false,
+      blocked: false,
+      status: inserted[0]?.status ?? "not_started",
+      tabSwitches: 0,
+    });
+
     return NextResponse.json({
       pid: inserted[0]?.pid ?? pid,
       token: signToken(pid),
@@ -243,6 +299,15 @@ export async function POST(request: Request) {
     considerMasters: considerMasters ?? "",
     planningYear: planningYear ?? "",
     interestsMost: interestsMost ?? "",
+  });
+
+  postToZapier({
+    ...zapierBase,
+    pid: result.pid,
+    existing: Boolean(result.existing),
+    blocked: Boolean(result.blocked) || result.status === "blocked",
+    status: result.status,
+    tabSwitches: result.tabSwitches ?? 0,
   });
 
   return NextResponse.json({
