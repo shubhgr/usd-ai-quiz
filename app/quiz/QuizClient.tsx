@@ -171,9 +171,7 @@ export default function QuizClient({ email }: { email: string }) {
           }).catch(() => undefined);
         }
         if (next >= TAB_SWITCH_LIMIT) {
-          setBlocked(true);
-          setTabWarning(false);
-          pendingTabWarningRef.current = false;
+          pendingTabWarningRef.current = true;
           return;
         }
         pendingTabWarningRef.current = true;
@@ -595,7 +593,12 @@ export default function QuizClient({ email }: { email: string }) {
             <button
               type="button"
               className="register-btn-primary"
-              onClick={() => setTabWarning(false)}
+              onClick={() => {
+                setTabWarning(false);
+                if (tabLeaveCount >= TAB_SWITCH_LIMIT) {
+                  setBlocked(true);
+                }
+              }}
             >
               Okay
             </button>
