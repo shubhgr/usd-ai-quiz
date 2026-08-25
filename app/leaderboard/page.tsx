@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import LeaderboardView from "@/components/LeaderboardView";
 import { normalizeEmail } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
@@ -239,6 +240,15 @@ function Leaderboard() {
 
   return (
     <main className="lb-page relative flex w-full flex-1 flex-col">
+      <div className="lb-nav flex items-center justify-between gap-3">
+        <Link
+          href="/college-leaderboard"
+          className="lb-back ml-auto"
+        >
+          College championship →
+        </Link>
+      </div>
+
       {error && !ready && (
         <div className="relative z-10 mx-auto mt-6 max-w-xl px-5">
           <div className="rounded-xl border border-red-500/30 bg-red-950/40 px-4 py-4 text-center">

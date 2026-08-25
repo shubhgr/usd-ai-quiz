@@ -28,6 +28,7 @@ interface RegisterBody {
   workExperience?: string;
   domain?: string;
   linkedinUrl?: string;
+  collegeName?: string;
   bestDescribeYou?: string;
   considerMasters?: string;
   planningYear?: string;
@@ -58,6 +59,8 @@ export async function POST(request: Request) {
   const domain = typeof body.domain === "string" ? body.domain.trim() : null;
   const linkedinUrl =
     typeof body.linkedinUrl === "string" ? body.linkedinUrl.trim() : null;
+  const collegeName =
+    typeof body.collegeName === "string" ? body.collegeName.trim() : "";
   const bestDescribeYou =
     typeof body.bestDescribeYou === "string" ? body.bestDescribeYou.trim() : null;
   const considerMasters =
@@ -70,6 +73,12 @@ export async function POST(request: Request) {
   if (!name || !email) {
     return NextResponse.json(
       { error: "name and email are required" },
+      { status: 400 }
+    );
+  }
+  if (!collegeName) {
+    return NextResponse.json(
+      { error: "college / university name is required" },
       { status: 400 }
     );
   }
@@ -95,6 +104,7 @@ export async function POST(request: Request) {
     email,
     phone,
     linkedinUrl: linkedinUrl ?? "",
+    collegeName,
     bestDescribeYou: bestDescribeYou ?? "",
     considerMasters: considerMasters ?? "",
     planningYear: planningYear ?? "",
@@ -156,10 +166,11 @@ export async function POST(request: Request) {
              work_experience = $4,
              domain = $5,
              linkedin_url = $6,
-             best_describe_you = $7,
-             consider_masters = $8,
-             planning_year = $9,
-             interests_most = $10
+             college_name = $7,
+             best_describe_you = $8,
+             consider_masters = $9,
+             planning_year = $10,
+             interests_most = $11
          WHERE pid = $1`,
         [
           existing.pid,
@@ -168,6 +179,7 @@ export async function POST(request: Request) {
           workExperience ?? "",
           domain ?? "",
           linkedinUrl ?? null,
+          collegeName,
           bestDescribeYou ?? null,
           considerMasters ?? null,
           planningYear ?? null,
@@ -188,6 +200,7 @@ export async function POST(request: Request) {
         workExperience: workExperience ?? "",
         domain: domain ?? "",
         linkedinUrl: linkedinUrl ?? "",
+        collegeName,
         bestDescribeYou: bestDescribeYou ?? "",
         considerMasters: considerMasters ?? "",
         planningYear: planningYear ?? "",
@@ -221,9 +234,9 @@ export async function POST(request: Request) {
       last_activity_at: string;
     }>(
       `INSERT INTO participants
-         (pid, name, email, phone, work_experience, domain, linkedin_url, best_describe_you, consider_masters, planning_year, interests_most, status, registered_at, last_activity_at)
+         (pid, name, email, phone, work_experience, domain, linkedin_url, college_name, best_describe_you, consider_masters, planning_year, interests_most, status, registered_at, last_activity_at)
        VALUES
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'not_started', $12, $13)
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'not_started', $13, $14)
        ON CONFLICT (pid)
        DO UPDATE SET
          name = EXCLUDED.name,
@@ -231,6 +244,7 @@ export async function POST(request: Request) {
          work_experience = EXCLUDED.work_experience,
          domain = EXCLUDED.domain,
          linkedin_url = EXCLUDED.linkedin_url,
+         college_name = EXCLUDED.college_name,
          best_describe_you = EXCLUDED.best_describe_you,
          consider_masters = EXCLUDED.consider_masters,
          planning_year = EXCLUDED.planning_year,
@@ -245,6 +259,7 @@ export async function POST(request: Request) {
         workExperience ?? "",
         domain ?? "",
         linkedinUrl ?? null,
+        collegeName,
         bestDescribeYou ?? null,
         considerMasters ?? null,
         planningYear ?? null,
@@ -269,6 +284,7 @@ export async function POST(request: Request) {
       workExperience: workExperience ?? "",
       domain: domain ?? "",
       linkedinUrl: linkedinUrl ?? "",
+      collegeName,
       bestDescribeYou: bestDescribeYou ?? "",
       considerMasters: considerMasters ?? "",
       planningYear: planningYear ?? "",
@@ -307,6 +323,7 @@ export async function POST(request: Request) {
     workExperience: workExperience ?? "",
     domain: domain ?? "",
     linkedinUrl: linkedinUrl ?? "",
+    collegeName,
     bestDescribeYou: bestDescribeYou ?? "",
     considerMasters: considerMasters ?? "",
     planningYear: planningYear ?? "",

@@ -19,6 +19,7 @@ import {
 } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
 import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
+import { invalidateCollegeLeaderboardCache } from "@/lib/collegeLeaderboardCache";
 
 function unauthorized() {
   return NextResponse.json(
@@ -323,6 +324,7 @@ export async function POST(request: Request) {
 
     if (completed) {
       invalidateLeaderboardCache();
+      invalidateCollegeLeaderboardCache();
       return NextResponse.json({
         ok: true,
         completed: true,

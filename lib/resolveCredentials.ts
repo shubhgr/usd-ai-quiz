@@ -137,6 +137,7 @@ export function persistResolvedCredentials(
     workExperience: existing?.workExperience ?? "",
     domain: existing?.domain ?? "",
     linkedinUrl: existing?.linkedinUrl ?? "",
+    collegeName: existing?.collegeName ?? "",
     bestDescribeYou: existing?.bestDescribeYou ?? "",
     considerMasters: existing?.considerMasters ?? "",
     planningYear: existing?.planningYear ?? "",

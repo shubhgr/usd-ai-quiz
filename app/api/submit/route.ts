@@ -3,6 +3,7 @@ import { verifyToken } from "@/lib/token";
 import { gasSubmit } from "@/lib/sheets";
 import { respondSheetsError } from "@/lib/handleSheetsError";
 import { invalidateLeaderboardCache } from "@/lib/leaderboardCache";
+import { invalidateCollegeLeaderboardCache } from "@/lib/collegeLeaderboardCache";
 import { hasDatabaseUrl, query } from "@/lib/db";
 import { scoreFromAnswerString } from "@/lib/answerKey";
 import { isAnswerStringComplete } from "@/lib/answerString";
@@ -111,6 +112,7 @@ export async function POST(request: Request) {
       );
 
       invalidateLeaderboardCache();
+      invalidateCollegeLeaderboardCache();
 
       // Background mirror to Google Sheets (Apps Script).
       void gasSubmit(pid).catch(() => {
@@ -129,6 +131,7 @@ export async function POST(request: Request) {
     // participant as completed. The client never sends a score.
     const result = await gasSubmit(pid);
     invalidateLeaderboardCache();
+    invalidateCollegeLeaderboardCache();
     return NextResponse.json({
       totalScore: result.totalScore,
       completionTimeSeconds: result.completionTimeSeconds,

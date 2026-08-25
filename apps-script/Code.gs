@@ -40,6 +40,7 @@ var REG_HEADERS = [
   "utm_content",
   "utm_id",
   "pageUrl",
+  "collegeName",
 ];
 // Product source of truth for quiz UX:
 var RESP_HEADERS = [
@@ -60,6 +61,7 @@ var REG_UTM_TERM = 22;
 var REG_UTM_CONTENT = 23;
 var REG_UTM_ID = 24;
 var REG_PAGE_URL = 25;
+var REG_COLLEGE_NAME = 26;
 var RESP_ANSWERS = 4;
 var RESP_SCORE = 5;
 var RESP_TIME = 6;
@@ -571,6 +573,7 @@ function actionRegister(params) {
     rsExisting.getRange(existing.row, 9).setValue(String(params.considerMasters || existing.values[8] || ""));
     rsExisting.getRange(existing.row, 10).setValue(String(params.planningYear || existing.values[9] || ""));
     rsExisting.getRange(existing.row, 11).setValue(String(params.interestsMost || existing.values[10] || ""));
+    rsExisting.getRange(existing.row, REG_COLLEGE_NAME).setValue(String(params.collegeName || existing.values[REG_COLLEGE_NAME - 1] || ""));
     return {
       ok: true,
       existing: true,
@@ -614,6 +617,7 @@ function actionRegister(params) {
     utmVals[4],
     utmVals[5],
     utmVals[6],
+    String(params.collegeName || ""),
   ]);
 
   return {

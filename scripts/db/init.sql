@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS participants (
   consider_masters text NULL,
   planning_year text NULL,
   interests_most text NULL,
+  college_name text NULL,
   tab_switches integer NOT NULL DEFAULT 0,
   status text NOT NULL CHECK (status IN ('not_started', 'in_progress', 'completed')),
   registered_at timestamptz NOT NULL,
@@ -26,14 +27,18 @@ ALTER TABLE participants ADD COLUMN IF NOT EXISTS linkedin_url text NULL;
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS best_describe_you text NULL;
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS consider_masters text NULL;
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS planning_year text NULL;
-ALTER TABLE participants ADD COLUMN IF NOT EXISTS interests_most text NULL;
+ALTER TABLE participants ADD COLUMN IF NOT EXISTS college_name text NULL;
+ALTER TABLE participants ALTER COLUMN college_name DROP NOT NULL;
 
--- If the columns already exist as NOT NULL, relax them.
-ALTER TABLE participants ALTER COLUMN linkedin_url DROP NOT NULL;
-ALTER TABLE participants ALTER COLUMN best_describe_you DROP NOT NULL;
-ALTER TABLE participants ALTER COLUMN consider_masters DROP NOT NULL;
-ALTER TABLE participants ALTER COLUMN planning_year DROP NOT NULL;
-ALTER TABLE participants ALTER COLUMN interests_most DROP NOT NULL;
+-- Admin-managed colleges (custom names beyond the CSV catalog)
+CREATE TABLE IF NOT EXISTS colleges (
+  id bigserial PRIMARY KEY,
+  name text NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS colleges_name_lower_idx ON colleges (lower(name));
+
 
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS tab_switches integer NOT NULL DEFAULT 0;
 ALTER TABLE participants ADD COLUMN IF NOT EXISTS quiz_started_at timestamptz NULL;

@@ -15,3 +15,4 @@ export function leaderboardUrl(email: string): string {
 }
 
 export const STANDINGS_PATH = "/leaderboard";
+export const COLLEGE_STANDINGS_PATH = "/college-leaderboard";

@@ -7,6 +7,7 @@ export interface LocalSession {
   workExperience: string;
   domain: string;
   linkedinUrl: string;
+  collegeName: string;
   bestDescribeYou: string;
   considerMasters: string;
   planningYear: string;
@@ -41,6 +42,7 @@ function normalize(session: LocalSession): LocalSession {
     syncedAnswerString: session.syncedAnswerString ?? "",
     rank: session.rank ?? null,
     linkedinUrl: session.linkedinUrl ?? "",
+    collegeName: session.collegeName ?? "",
     bestDescribeYou: session.bestDescribeYou ?? "",
     considerMasters: session.considerMasters ?? "",
     planningYear: session.planningYear ?? "",

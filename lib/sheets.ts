@@ -183,6 +183,7 @@ export async function gasRegister(params: {
   workExperience?: string;
   domain?: string;
   linkedinUrl?: string;
+  collegeName?: string;
   bestDescribeYou?: string;
   considerMasters?: string;
   planningYear?: string;
@@ -204,6 +205,7 @@ export async function gasRegister(params: {
     workExperience: params.workExperience ?? "",
     domain: params.domain ?? "",
     linkedinUrl: params.linkedinUrl ?? "",
+    collegeName: params.collegeName ?? "",
     bestDescribeYou: params.bestDescribeYou ?? "",
     considerMasters: params.considerMasters ?? "",
     planningYear: params.planningYear ?? "",

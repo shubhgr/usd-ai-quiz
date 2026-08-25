@@ -22,6 +22,7 @@ model Registration {
   workExperience String?
   domain         String?
   linkedinUrl    String?
+  collegeName    String?
   bestDescribeYou String?
   considerMasters String?
   planningYear   String?
