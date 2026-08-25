@@ -626,9 +626,18 @@ export default function LandingPage() {
                       <option value="" disabled>
                         Select…
                       </option>
-                      <option value="2027">2027</option>
-                      <option value="2028">2028</option>
-                      <option value="2029 or later">2029 or later</option>
+                      <option value="Spring 2027 (Jan - Mar, 2027)">
+                        Spring 2027 (Jan - Mar, 2027)
+                      </option>
+                      <option value="Fall 2027 (July - Sept, 2027)">
+                        Fall 2027 (July - Sept, 2027)
+                      </option>
+                      <option value="Spring 2028 (Jan - Mar, 2028)">
+                        Spring 2028 (Jan - Mar, 2028)
+                      </option>
+                      <option value="Fall 2028 (July - Sept, 2028)">
+                        Fall 2028 (July - Sept, 2028)
+                      </option>
                       <option value="Not decided">Not decided</option>
                     </select>
                   </div>
