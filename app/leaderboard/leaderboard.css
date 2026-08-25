@@ -72,14 +72,15 @@
 .lb-podium-name {
   margin-bottom: 0.625rem;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   padding: 0 0.25rem;
   text-align: center;
   font-size: 0.9375rem;
   font-weight: 600;
+  line-height: 1.25;
   color: #ffffff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .lb-podium-name--you {
