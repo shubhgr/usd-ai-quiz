@@ -38,7 +38,7 @@ export default function CollegeLeaderboardPage() {
     if (!opts?.silent && rowsRef.current.length === 0) setLoading(true);
 
     try {
-      const res = await fetch("/api/college-leaderboard?limit=100");
+      const res = await fetch("/api/college-leaderboard?limit=10");
       const body = (await res.json()) as {
         entries?: CollegeStanding[];
         error?: string;

@@ -161,8 +161,8 @@ function Leaderboard() {
       try {
         const url =
           pid && token
-            ? `/api/leaderboard?limit=100&pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
-            : "/api/standings?limit=100";
+            ? `/api/leaderboard?limit=10&pid=${encodeURIComponent(pid)}&token=${encodeURIComponent(token)}`
+            : "/api/standings?limit=10";
         const res = await fetch(url);
         const body = (await res.json()) as LeaderboardResponse;
         if (requestId !== requestIdRef.current) return;

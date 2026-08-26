@@ -5,8 +5,8 @@ export async function GET(request: NextRequest) {
   const raw = request.nextUrl.searchParams.get("limit");
   const parsed = Number(raw);
   const limit = Number.isFinite(parsed)
-    ? Math.min(100, Math.max(1, Math.trunc(parsed)))
-    : 100;
+    ? Math.min(10, Math.max(1, Math.trunc(parsed)))
+    : 10;
 
   try {
     const entries = await getCachedCollegeLeaderboard({ limit });
