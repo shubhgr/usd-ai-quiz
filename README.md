@@ -59,7 +59,79 @@ Users do **not** need to leave your site. The quiz runs inside the iframe.
 
 If the browser blocks `localStorage` in the iframe, the app keeps the session **in memory** for that visit and still saves registration/answers to the server. If someone refreshes mid-quiz, they can continue with **Already registered?** and their email.
 
-Framer tip: use a full-height embed and avoid a restrictive `sandbox` on the iframe.
+### Auto height (no iframe scroll)
+
+Framer’s built-in **URL Embed** cannot use Height → Fit. Use a **Code component** that listens for our height messages and grows the iframe. Put page scroll on the Framer page (or the parent stack), not inside the iframe.
+
+1. Assets → Code → New component (e.g. `AutoHeightEmbed`).
+2. Paste:
+
+```tsx
+import { addPropertyControls, ControlType } from "framer"
+import { useEffect, useState } from "react"
+
+/**
+ * @framerSupportedLayoutWidth any
+ * @framerSupportedLayoutHeight any
+ */
+export default function AutoHeightEmbed(props) {
+  const { url, minHeight, style } = props
+  const [height, setHeight] = useState(minHeight || 400)
+
+  useEffect(() => {
+    function onMessage(event) {
+      const data = event.data
+      if (
+        data?.source === "usd-ai-quiz" &&
+        data?.type === "embed-height" &&
+        typeof data.height === "number" &&
+        data.height > 0
+      ) {
+        setHeight(Math.max(minHeight || 0, Math.ceil(data.height)))
+      }
+    }
+    window.addEventListener("message", onMessage)
+    return () => window.removeEventListener("message", onMessage)
+  }, [minHeight])
+
+  return (
+    <iframe
+      src={url}
+      title="AI Grand Prix"
+      style={{
+        ...style,
+        width: "100%",
+        height,
+        border: "none",
+        display: "block",
+        overflow: "hidden",
+      }}
+      scrolling="no"
+    />
+  )
+}
+
+addPropertyControls(AutoHeightEmbed, {
+  url: {
+    type: ControlType.String,
+    title: "URL",
+    defaultValue: "https://usd-ai-quiz.vercel.app/leaderboard",
+  },
+  minHeight: {
+    type: ControlType.Number,
+    title: "Min Height",
+    defaultValue: 400,
+    min: 0,
+    step: 10,
+  },
+})
+```
+
+3. Drop that component on the canvas (not the default URL Embed).
+4. Set URL to `/leaderboard` or `/college-leaderboard`.
+5. Let the Framer page (or a scrolling parent) scroll — do not put Height → Fit on a URL Embed.
+
+Framer tip: avoid a restrictive `sandbox` on the iframe.
 
 ## Postgres (Neon) setup
 1. Create/initialize a Neon Postgres database.

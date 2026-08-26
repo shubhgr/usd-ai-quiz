@@ -3,6 +3,7 @@ import { Sofia_Sans, Spectral, Inter } from "next/font/google";
 import "./globals.css";
 import { COMPETITION_NAME } from "@/lib/config";
 import ToastHost from "@/components/ToastHost";
+import EmbedHeightReporter from "@/components/EmbedHeightReporter";
 
 const sofiaSans = Sofia_Sans({
   variable: "--font-sofia-sans",
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`dark ${sofiaSans.variable} ${spectral.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col font-sans" suppressHydrationWarning>
+        <EmbedHeightReporter />
         {children}
         <ToastHost />
       </body>

@@ -804,6 +804,18 @@ body {
   font-family: var(--font-sofia-sans), system-ui, sans-serif;
 }
 
+/* Embedded in Framer: content-sized, no iframe scrollbar */
+html.usd-embed,
+html.usd-embed body.usd-embed {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+html.usd-embed body.usd-embed {
+  display: block;
+}
+
 input,
 select,
 textarea,

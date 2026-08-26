@@ -5,6 +5,12 @@
   min-height: 100dvh;
 }
 
+/* Framer iframe: height follows content; page scroll lives on the parent */
+html.usd-embed .lb-page,
+.usd-embed .lb-page {
+  min-height: 0;
+}
+
 .lb-nav {
   position: relative;
   z-index: 2;
