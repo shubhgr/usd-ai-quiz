@@ -50,7 +50,7 @@ export function measureEmbedHeight(): number {
     bottom = Math.max(bottom, rect.bottom);
   }
 
-  const height = Math.ceil(Math.max(bottom, 1));
+  const height = Math.ceil(Math.max(bottom, 1)) + 2;
 
   // Collapse document to content so a tall iframe does not paint empty page bg.
   html.style.height = `${height}px`;

@@ -827,7 +827,15 @@ html.usd-embed main {
 }
 
 html.usd-embed .cl-wrap {
-  padding-bottom: 1.5rem;
+  padding-bottom: 1.25rem;
+}
+
+@media (max-width: 540px) {
+  html.usd-embed .cl-wrap {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+    padding-bottom: 1rem;
+  }
 }
 
 input,
