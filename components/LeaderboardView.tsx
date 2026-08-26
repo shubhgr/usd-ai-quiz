@@ -112,7 +112,7 @@ export default function LeaderboardView({
   }, [rows, myPid, me]);
 
   return (
-    <div className="lb-page w-full" aria-busy={loading || undefined}>
+    <div className="w-full" aria-busy={loading || undefined}>
       {showSkeleton ? (
         <SkeletonPodium />
       ) : topThree.length > 0 ? (
