@@ -1,33 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import LeaderboardView, {
-  type LeaderboardRow,
-} from "@/components/LeaderboardView";
+import { CollegeStandingsTable } from "@/components/CollegeStandingsTable";
+import { LeaderboardTabs } from "@/components/LeaderboardTabs";
 import type { CollegeStanding } from "@/lib/collegeStandings";
-import { STANDINGS_PATH } from "@/lib/quizUrls";
 import "../leaderboard/leaderboard.css";
 
 const POLL_MS = 30_000;
 
-function toLeaderboardRows(entries: CollegeStanding[]): LeaderboardRow[] {
-  return entries.map((row) => ({
-    pid: `college-${row.rank}-${row.collegeName}`,
-    name: row.collegeName,
-    totalScore: row.combinedScore,
-    completionTimeSeconds: row.participants,
-    completedAt: "",
-  }));
-}
-
 export default function CollegeLeaderboardPage() {
-  const [rows, setRows] = useState<LeaderboardRow[]>([]);
+  const [rows, setRows] = useState<CollegeStanding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const requestIdRef = useRef(0);
-  const rowsRef = useRef<LeaderboardRow[]>([]);
+  const rowsRef = useRef<CollegeStanding[]>([]);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -50,7 +37,7 @@ export default function CollegeLeaderboardPage() {
         throw new Error(body.error ?? "Failed to load");
       }
 
-      setRows(toLeaderboardRows(body.entries ?? []));
+      setRows(body.entries ?? []);
       setError("");
       setReady(true);
     } catch (err) {
@@ -74,11 +61,7 @@ export default function CollegeLeaderboardPage() {
 
   return (
     <main className="lb-page relative flex w-full flex-1 flex-col">
-      <div className="lb-nav flex items-center justify-between gap-3">
-        <Link href={STANDINGS_PATH} className="lb-back">
-          ← Individual leaderboard
-        </Link>
-      </div>
+      <LeaderboardTabs active="college" />
 
       {error && !ready && (
         <div className="relative z-10 mx-auto mt-6 max-w-xl px-5">
@@ -96,7 +79,10 @@ export default function CollegeLeaderboardPage() {
         </div>
       )}
 
-      <LeaderboardView rows={rows} loading={loading && rows.length === 0} />
+      <CollegeStandingsTable
+        rows={rows}
+        loading={loading && rows.length === 0}
+      />
     </main>
   );
 }
