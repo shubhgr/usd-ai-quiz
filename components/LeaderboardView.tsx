@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { questions } from "@/lib/questions";
-import CourseFab from "@/components/CourseFab";
 
 export interface LeaderboardRow {
   pid: string;
@@ -219,8 +218,6 @@ export default function LeaderboardView({
           </p>
         )}
       </div>
-
-      <CourseFab />
     </div>
   );
 }
