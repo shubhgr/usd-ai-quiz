@@ -804,26 +804,27 @@ body {
   font-family: var(--font-sofia-sans), system-ui, sans-serif;
 }
 
-/* Embedded in Framer: content-sized, no iframe scrollbar */
+/* Framer URL embed: scroll inside the iframe (fixed embed height in Framer) */
 html.usd-embed,
 html.usd-embed body.usd-embed {
-  height: auto !important;
-  min-height: 0 !important;
+  height: 100% !important;
+  min-height: 100% !important;
   max-height: none !important;
-  overflow: hidden !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 html.usd-embed body.usd-embed {
-  display: block !important;
-  flex: none !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 html.usd-embed .lb-page,
-html.usd-embed main {
-  min-height: 0 !important;
+html.usd-embed main[data-embed-root] {
+  min-height: 100% !important;
   height: auto !important;
-  flex: none !important;
-  flex-grow: 0 !important;
+  flex: 1 0 auto !important;
 }
 
 html.usd-embed .cl-wrap {

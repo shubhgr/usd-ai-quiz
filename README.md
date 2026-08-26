@@ -49,84 +49,17 @@ The UI leaderboard is at [/leaderboard](http://localhost:3000/leaderboard).
 
 ## Embedding in Framer (iframe)
 
-Embed the quiz on your Framer site so users stay on your page:
+Embed the quiz / leaderboard with Framer’s built-in **URL Embed** (fixed height — Fit is not supported):
 
 ```
-https://usd-ai-quiz.vercel.app/
+https://usd-ai-quiz.vercel.app/leaderboard
 ```
+
+Set **Height → Fixed** (e.g. `900`–`1400` on desktop, a bit less on phone). The page **scrolls inside the iframe**.
 
 Users do **not** need to leave your site. The quiz runs inside the iframe.
 
 If the browser blocks `localStorage` in the iframe, the app keeps the session **in memory** for that visit and still saves registration/answers to the server. If someone refreshes mid-quiz, they can continue with **Already registered?** and their email.
-
-### Auto height (no iframe scroll)
-
-Framer’s built-in **URL Embed** cannot use Height → Fit. Use a **Code component** that listens for our height messages and grows the iframe. Put page scroll on the Framer page (or the parent stack), not inside the iframe.
-
-1. Assets → Code → New component (e.g. `AutoHeightEmbed`).
-2. Paste:
-
-```tsx
-import { addPropertyControls, ControlType } from "framer"
-import { useEffect, useState } from "react"
-
-/**
- * @framerSupportedLayoutWidth any
- * @framerSupportedLayoutHeight any
- */
-export default function AutoHeightEmbed(props) {
-  const { url, style } = props
-  // Loading placeholder only — real height comes from the quiz app (exact).
-  const [height, setHeight] = useState(600)
-
-  useEffect(() => {
-    function onMessage(event) {
-      const data = event.data
-      if (
-        data?.source === "usd-ai-quiz" &&
-        data?.type === "embed-height" &&
-        typeof data.height === "number" &&
-        data.height > 0
-      ) {
-        // Exact content height — do NOT floor with Min Height (that causes the empty gap).
-        setHeight(Math.ceil(data.height))
-      }
-    }
-    window.addEventListener("message", onMessage)
-    return () => window.removeEventListener("message", onMessage)
-  }, [])
-
-  return (
-    <iframe
-      src={url}
-      title="AI Grand Prix"
-      style={{
-        ...style,
-        width: "100%",
-        height,
-        border: "none",
-        display: "block",
-        overflow: "hidden",
-      }}
-      scrolling="no"
-    />
-  )
-}
-
-addPropertyControls(AutoHeightEmbed, {
-  url: {
-    type: ControlType.String,
-    title: "URL",
-    defaultValue: "https://usd-ai-quiz.vercel.app/leaderboard",
-  },
-})
-```
-
-3. Drop that component on the canvas (not the default URL Embed).
-4. Set URL to `https://usd-ai-quiz.vercel.app/leaderboard`.
-5. Let the **Framer page** scroll — never scroll inside the iframe. Do not set a max-height on this component.
-6. Use the same component on **Phone** and **Desktop** breakpoints.
-7. In Framer: **Edit Code** and replace with the snippet above if you still have the old `Min Height` version — that floor caused the empty gap when switching tabs.
 
 Framer tip: avoid a restrictive `sandbox` on the iframe.
 
