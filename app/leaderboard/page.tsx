@@ -45,7 +45,7 @@ function LeaderboardShell({
   pendingName?: string;
 }) {
   return (
-    <main className="lb-page relative flex w-full flex-1 flex-col">
+    <main className="lb-page relative flex w-full flex-1 flex-col" data-embed-root>
       <LeaderboardTabs active="individual" />
       <LeaderboardView
         rows={rows}
@@ -240,7 +240,7 @@ function Leaderboard() {
   }
 
   return (
-    <main className="lb-page relative flex w-full flex-1 flex-col">
+    <main className="lb-page relative flex w-full flex-1 flex-col" data-embed-root>
       <LeaderboardTabs active="individual" />
 
       {error && !ready && (

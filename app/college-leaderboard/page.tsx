@@ -60,7 +60,7 @@ export default function CollegeLeaderboardPage() {
   }, [load]);
 
   return (
-    <main className="lb-page relative flex w-full flex-1 flex-col">
+    <main className="lb-page relative flex w-full flex-1 flex-col" data-embed-root>
       <LeaderboardTabs active="college" />
 
       {error && !ready && (

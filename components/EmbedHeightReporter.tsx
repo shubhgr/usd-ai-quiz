@@ -8,69 +8,76 @@ import {
 } from "@/lib/embed";
 
 /**
- * When running inside an iframe (Framer), size the document to its content
- * (no internal scroll) and post the height to the parent so Framer can grow
- * the iframe and scroll the page instead.
+ * Content-sized iframe for Framer: no internal scroll. Parent scrolls.
  */
 export default function EmbedHeightReporter() {
   useEffect(() => {
     if (!isEmbedded()) return;
 
-    document.documentElement.classList.add("usd-embed");
-    document.body.classList.add("usd-embed");
+    const html = document.documentElement;
+    const body = document.body;
+    html.classList.add("usd-embed");
+    body.classList.add("usd-embed");
 
     let raf = 0;
     let last = 0;
 
-    const publish = () => {
+    const publish = (force = false) => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
-        const height = measureEmbedHeight();
-        if (height === last) return;
-        last = height;
-        reportEmbedHeight(height);
+        requestAnimationFrame(() => {
+          const height = measureEmbedHeight();
+          if (!force && height === last) return;
+          last = height;
+          reportEmbedHeight(height);
+        });
       });
     };
 
-    publish();
+    const onLoad = () => publish(true);
 
-    // Observe content roots — not html — so iframe viewport resizes don't
-    // re-inflate measured height when switching to a shorter page.
-    const ro = new ResizeObserver(publish);
-    const main = document.querySelector("main");
-    if (main) ro.observe(main);
-    for (const child of Array.from(document.body.children)) {
-      if (child instanceof HTMLElement) ro.observe(child);
-    }
+    publish(true);
+
+    const ro = new ResizeObserver(() => publish());
+    const observeTree = () => {
+      const root =
+        document.querySelector("[data-embed-root]") ||
+        document.querySelector("main") ||
+        body;
+      ro.observe(root);
+      for (const child of Array.from(body.children)) {
+        if (child instanceof HTMLElement) ro.observe(child);
+      }
+    };
+    observeTree();
 
     const mo = new MutationObserver(() => {
-      const nextMain = document.querySelector("main");
-      if (nextMain) ro.observe(nextMain);
+      observeTree();
       publish();
     });
-    mo.observe(document.body, {
+    mo.observe(body, {
       subtree: true,
       childList: true,
       attributes: true,
       characterData: true,
     });
 
-    window.addEventListener("load", publish);
+    window.addEventListener("load", onLoad);
 
-    const timers = [0, 100, 300, 800, 1600].map((ms) =>
-      window.setTimeout(publish, ms)
+    const timers = [0, 50, 150, 400, 900, 1800, 3200].map((ms) =>
+      window.setTimeout(() => publish(true), ms)
     );
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
       mo.disconnect();
-      window.removeEventListener("load", publish);
+      window.removeEventListener("load", onLoad);
       timers.forEach(clearTimeout);
-      document.documentElement.classList.remove("usd-embed");
-      document.body.classList.remove("usd-embed");
-      document.documentElement.style.height = "";
-      document.body.style.height = "";
+      html.classList.remove("usd-embed");
+      body.classList.remove("usd-embed");
+      html.style.height = "";
+      body.style.height = "";
     };
   }, []);
 

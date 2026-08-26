@@ -20,47 +20,35 @@ export type EmbedHeightMessage = {
 /**
  * Content-only height — never use the iframe viewport (100dvh / % of a tall
  * parent), or height cannot shrink when switching to a shorter page.
+ * No internal scroll: document is collapsed to this height.
  */
 export function measureEmbedHeight(): number {
   if (typeof document === "undefined") return 0;
   const body = document.body;
   if (!body) return 0;
 
-  // Let layout settle to intrinsic content size before measuring.
   const html = document.documentElement;
-  const prevHtmlHeight = html.style.height;
-  const prevBodyHeight = body.style.height;
   html.style.height = "auto";
   body.style.height = "auto";
+  html.style.overflow = "hidden";
+  body.style.overflow = "hidden";
 
-  let bottom = 0;
-  for (const node of Array.from(body.children)) {
-    if (!(node instanceof HTMLElement)) continue;
-    const style = window.getComputedStyle(node);
-    if (style.display === "none") continue;
-    if (style.position === "fixed" || style.position === "sticky") continue;
-    const rect = node.getBoundingClientRect();
-    bottom = Math.max(bottom, rect.bottom);
-  }
+  const root =
+    (document.querySelector("[data-embed-root]") as HTMLElement | null) ||
+    (document.querySelector("main") as HTMLElement | null) ||
+    body;
 
-  // Prefer main when present (leaderboard / quiz shell).
-  const main = body.querySelector("main");
-  if (main instanceof HTMLElement) {
-    const rect = main.getBoundingClientRect();
-    bottom = Math.max(bottom, rect.bottom);
-  }
+  // Force layout with intrinsic size (ignore leftover iframe viewport).
+  void root.offsetHeight;
 
-  const height = Math.ceil(Math.max(bottom, 1)) + 2;
+  const rect = root.getBoundingClientRect();
+  const top = rect.top + (window.scrollY || 0);
+  const fromScroll = root.scrollHeight;
+  const fromRect = rect.height;
+  const height = Math.max(1, Math.ceil(top + Math.max(fromScroll, fromRect) + 4));
 
-  // Collapse document to content so a tall iframe does not paint empty page bg.
   html.style.height = `${height}px`;
   body.style.height = `${height}px`;
-
-  // Keep previous inline values only if measure somehow failed mid-flight.
-  if (height <= 1) {
-    html.style.height = prevHtmlHeight;
-    body.style.height = prevBodyHeight;
-  }
 
   return height;
 }

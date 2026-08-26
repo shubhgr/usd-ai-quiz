@@ -521,9 +521,14 @@ html.usd-embed .lb-page,
 .cl-cell--name {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   font-size: 1.0625rem;
   font-weight: 500;
+  line-height: 1.3;
   color: #ffffff;
 }
 

@@ -75,8 +75,9 @@ import { useEffect, useState } from "react"
  * @framerSupportedLayoutHeight any
  */
 export default function AutoHeightEmbed(props) {
-  const { url, minHeight, style } = props
-  const [height, setHeight] = useState(minHeight || 400)
+  const { url, style } = props
+  // Loading placeholder only — real height comes from the quiz app (exact).
+  const [height, setHeight] = useState(600)
 
   useEffect(() => {
     function onMessage(event) {
@@ -87,12 +88,13 @@ export default function AutoHeightEmbed(props) {
         typeof data.height === "number" &&
         data.height > 0
       ) {
-        setHeight(Math.max(minHeight || 0, Math.ceil(data.height)))
+        // Exact content height — do NOT floor with Min Height (that causes the empty gap).
+        setHeight(Math.ceil(data.height))
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [minHeight])
+  }, [])
 
   return (
     <iframe
@@ -117,19 +119,14 @@ addPropertyControls(AutoHeightEmbed, {
     title: "URL",
     defaultValue: "https://usd-ai-quiz.vercel.app/leaderboard",
   },
-  minHeight: {
-    type: ControlType.Number,
-    title: "Min Height",
-    defaultValue: 400,
-    min: 0,
-    step: 10,
-  },
 })
 ```
 
 3. Drop that component on the canvas (not the default URL Embed).
-4. Set URL to `/leaderboard` or `/college-leaderboard`.
-5. Let the Framer page (or a scrolling parent) scroll — do not put Height → Fit on a URL Embed.
+4. Set URL to `https://usd-ai-quiz.vercel.app/leaderboard`.
+5. Let the **Framer page** scroll — never scroll inside the iframe. Do not set a max-height on this component.
+6. Use the same component on **Phone** and **Desktop** breakpoints.
+7. In Framer: **Edit Code** and replace with the snippet above if you still have the old `Min Height` version — that floor caused the empty gap when switching tabs.
 
 Framer tip: avoid a restrictive `sandbox` on the iframe.
 
