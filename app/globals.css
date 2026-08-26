@@ -809,11 +809,25 @@ html.usd-embed,
 html.usd-embed body.usd-embed {
   height: auto !important;
   min-height: 0 !important;
+  max-height: none !important;
   overflow: hidden !important;
 }
 
 html.usd-embed body.usd-embed {
-  display: block;
+  display: block !important;
+  flex: none !important;
+}
+
+html.usd-embed .lb-page,
+html.usd-embed main {
+  min-height: 0 !important;
+  height: auto !important;
+  flex: none !important;
+  flex-grow: 0 !important;
+}
+
+html.usd-embed .cl-wrap {
+  padding-bottom: 1.5rem;
 }
 
 input,

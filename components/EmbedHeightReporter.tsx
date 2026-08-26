@@ -34,12 +34,21 @@ export default function EmbedHeightReporter() {
 
     publish();
 
+    // Observe content roots — not html — so iframe viewport resizes don't
+    // re-inflate measured height when switching to a shorter page.
     const ro = new ResizeObserver(publish);
-    ro.observe(document.documentElement);
-    if (document.body) ro.observe(document.body);
+    const main = document.querySelector("main");
+    if (main) ro.observe(main);
+    for (const child of Array.from(document.body.children)) {
+      if (child instanceof HTMLElement) ro.observe(child);
+    }
 
-    const mo = new MutationObserver(publish);
-    mo.observe(document.documentElement, {
+    const mo = new MutationObserver(() => {
+      const nextMain = document.querySelector("main");
+      if (nextMain) ro.observe(nextMain);
+      publish();
+    });
+    mo.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
@@ -47,9 +56,7 @@ export default function EmbedHeightReporter() {
     });
 
     window.addEventListener("load", publish);
-    window.addEventListener("resize", publish);
 
-    // Late images / fonts / async leaderboard rows
     const timers = [0, 100, 300, 800, 1600].map((ms) =>
       window.setTimeout(publish, ms)
     );
@@ -59,10 +66,11 @@ export default function EmbedHeightReporter() {
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener("load", publish);
-      window.removeEventListener("resize", publish);
       timers.forEach(clearTimeout);
       document.documentElement.classList.remove("usd-embed");
       document.body.classList.remove("usd-embed");
+      document.documentElement.style.height = "";
+      document.body.style.height = "";
     };
   }, []);
 

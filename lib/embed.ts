@@ -17,19 +17,52 @@ export type EmbedHeightMessage = {
   height: number;
 };
 
-/** Measure content height for parent iframe resize (Framer code component). */
+/**
+ * Content-only height — never use the iframe viewport (100dvh / % of a tall
+ * parent), or height cannot shrink when switching to a shorter page.
+ */
 export function measureEmbedHeight(): number {
   if (typeof document === "undefined") return 0;
-  const doc = document.documentElement;
   const body = document.body;
-  return Math.ceil(
-    Math.max(
-      body?.scrollHeight ?? 0,
-      body?.offsetHeight ?? 0,
-      doc?.scrollHeight ?? 0,
-      doc?.offsetHeight ?? 0
-    )
-  );
+  if (!body) return 0;
+
+  // Let layout settle to intrinsic content size before measuring.
+  const html = document.documentElement;
+  const prevHtmlHeight = html.style.height;
+  const prevBodyHeight = body.style.height;
+  html.style.height = "auto";
+  body.style.height = "auto";
+
+  let bottom = 0;
+  for (const node of Array.from(body.children)) {
+    if (!(node instanceof HTMLElement)) continue;
+    const style = window.getComputedStyle(node);
+    if (style.display === "none") continue;
+    if (style.position === "fixed" || style.position === "sticky") continue;
+    const rect = node.getBoundingClientRect();
+    bottom = Math.max(bottom, rect.bottom);
+  }
+
+  // Prefer main when present (leaderboard / quiz shell).
+  const main = body.querySelector("main");
+  if (main instanceof HTMLElement) {
+    const rect = main.getBoundingClientRect();
+    bottom = Math.max(bottom, rect.bottom);
+  }
+
+  const height = Math.ceil(Math.max(bottom, 1));
+
+  // Collapse document to content so a tall iframe does not paint empty page bg.
+  html.style.height = `${height}px`;
+  body.style.height = `${height}px`;
+
+  // Keep previous inline values only if measure somehow failed mid-flight.
+  if (height <= 1) {
+    html.style.height = prevHtmlHeight;
+    body.style.height = prevBodyHeight;
+  }
+
+  return height;
 }
 
 /** Tell the parent frame the content height so it can grow (no iframe scroll). */
