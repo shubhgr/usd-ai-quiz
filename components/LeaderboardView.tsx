@@ -159,7 +159,7 @@ export default function LeaderboardView({
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-xl px-5 pb-24 pt-8">
+      <div className="mx-auto w-full max-w-xl px-5 pb-8 pt-8">
         {loading && (
           <p className="lb-loading-hint" role="status">
             Loading rankings…

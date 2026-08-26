@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import LeaderboardView from "@/components/LeaderboardView";
 import { LeaderboardTabs } from "@/components/LeaderboardTabs";
+import { LeaderboardMastersCta } from "@/components/LeaderboardMastersCta";
 import { normalizeEmail } from "@/lib/quizUrls";
 import { resolveCredentialsByEmail, persistResolvedCredentials } from "@/lib/resolveCredentials";
 import { loadSession, saveSession } from "@/lib/clientSession";
@@ -54,6 +55,7 @@ function LeaderboardShell({
         pendingName={pendingName}
         loading={loading}
       />
+      <LeaderboardMastersCta />
     </main>
   );
 }
@@ -266,6 +268,7 @@ function Leaderboard() {
         pendingName={pendingName}
         loading={(loading || (Boolean(email) && !credsReady)) && rows.length === 0}
       />
+      <LeaderboardMastersCta />
     </main>
   );
 }

@@ -419,7 +419,7 @@ html.usd-embed .lb-page,
   width: 100%;
   max-width: 36rem;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 6rem;
+  padding: 1.5rem 1.25rem 1.5rem;
 }
 
 .cl-heading {
@@ -619,5 +619,126 @@ html.usd-embed .lb-page,
     min-height: 2rem;
     padding: 0.4rem 0.4rem;
     font-size: 0.75rem;
+  }
+}
+
+/* Masters CTA — matches GradRight leaderboard bottom section */
+.lb-masters {
+  width: 100%;
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 3rem;
+  text-align: center;
+  background: #000000;
+}
+
+.lb-masters-heading {
+  margin: 0 0 1.75rem;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.lb-masters-card {
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto;
+  padding: 2rem 1.35rem 1.75rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(117, 190, 233, 0.18);
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(0, 116, 200, 0.45) 0%, rgba(0, 20, 40, 0.2) 42%, rgba(0, 10, 22, 0.92) 100%),
+    #00101f;
+  box-shadow: inset 0 1px 0 rgba(117, 190, 233, 0.12);
+}
+
+.lb-masters-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.22;
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.55) 0.6px,
+    transparent 0.7px
+  );
+  background-size: 10px 10px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 85%);
+}
+
+.lb-masters-icon {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0 auto 1rem;
+  color: #ffffff;
+}
+
+.lb-masters-card-title {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.05rem, 3.6vw, 1.25rem);
+  font-weight: 700;
+  line-height: 1.35;
+  color: #ffffff;
+}
+
+.lb-masters-card-body {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.55;
+  color: rgba(226, 232, 240, 0.88);
+}
+
+.lb-masters-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.75rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 0.4rem;
+  background: #0074c8;
+  color: #ffffff;
+  font-family: var(--font-spectral), Georgia, serif;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: background-color 0.15s ease, transform 0.15s ease;
+}
+
+.lb-masters-btn:hover {
+  background: #128fcb;
+}
+
+.lb-masters-btn:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 540px) {
+  .lb-masters {
+    padding: 2rem 0.75rem 2.5rem;
+  }
+
+  .lb-masters-card {
+    padding: 1.5rem 1rem 1.35rem;
+  }
+
+  .lb-masters-card-body {
+    font-size: 0.875rem;
+  }
+
+  .lb-masters-btn {
+    width: 100%;
+    padding: 0.9rem 1.25rem;
+    font-size: 0.9375rem;
   }
 }

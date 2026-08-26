@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CollegeStandingsTable } from "@/components/CollegeStandingsTable";
 import { LeaderboardTabs } from "@/components/LeaderboardTabs";
+import { LeaderboardMastersCta } from "@/components/LeaderboardMastersCta";
 import type { CollegeStanding } from "@/lib/collegeStandings";
 import "../leaderboard/leaderboard.css";
 
@@ -83,6 +84,7 @@ export default function CollegeLeaderboardPage() {
         rows={rows}
         loading={loading && rows.length === 0}
       />
+      <LeaderboardMastersCta />
     </main>
   );
 }
