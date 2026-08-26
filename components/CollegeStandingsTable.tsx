@@ -50,10 +50,7 @@ export function CollegeStandingsTable({
                 className={`cl-row ${topThree ? "cl-row--podium" : ""}`}
                 role="row"
               >
-                <span
-                  className={`cl-cell cl-cell--rank ${topThree ? "cl-rank--top" : ""}`}
-                  role="cell"
-                >
+                <span className="cl-cell cl-cell--rank cl-rank--top" role="cell">
                   {row.rank}
                 </span>
                 <span className="cl-cell cl-cell--name" role="cell" title={row.collegeName}>
