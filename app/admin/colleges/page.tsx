@@ -2,6 +2,8 @@
 
 import { FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { AdminGate } from "../AdminGate";
+import { AdminAddStudentDropdown } from "../AdminAddStudentDropdown";
+import { AdminRowMenu } from "../AdminRowMenu";
 import {
   collegesCacheKey,
   getCollegesCached,
@@ -13,6 +15,15 @@ import { useAdminRefresh } from "../AdminRefresh";
 import { AdminStickyTools } from "../AdminStickyTools";
 
 type CollegeListItem = AdminCollegeCacheRow;
+
+type CollegeMember = {
+  pid: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  score: number | null;
+};
 
 function AddCollegeModal({
   open,
@@ -131,6 +142,19 @@ function CollegesAdmin() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [membersByCollege, setMembersByCollege] = useState<
+    Record<string, CollegeMember[]>
+  >({});
+  const [loadingMembersKey, setLoadingMembersKey] = useState<string | null>(
+    null
+  );
+  const [memberActionPid, setMemberActionPid] = useState<string | null>(null);
+  const [deleteCollegeTarget, setDeleteCollegeTarget] =
+    useState<CollegeListItem | null>(null);
+  const [deletingCollegeKey, setDeletingCollegeKey] = useState<string | null>(
+    null
+  );
   const searchInputRef = useRef(searchInput);
   searchInputRef.current = searchInput;
 
@@ -289,6 +313,37 @@ function CollegesAdmin() {
     }
   }
 
+  async function loadCollegeMembers(collegeName: string) {
+    setLoadingMembersKey(collegeName);
+    try {
+      const params = new URLSearchParams({ collegeName });
+      const res = await fetch(`/api/admin/colleges/members?${params}`);
+      const body = (await res.json()) as {
+        members?: CollegeMember[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(body.error ?? "Failed to load students");
+      setMembersByCollege((prev) => ({
+        ...prev,
+        [collegeName]: body.members ?? [],
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load students");
+    } finally {
+      setLoadingMembersKey(null);
+    }
+  }
+
+  async function toggleExpanded(college: CollegeListItem) {
+    const key = college.name;
+    if (expandedKey === key) {
+      setExpandedKey(null);
+      return;
+    }
+    setExpandedKey(key);
+    await loadCollegeMembers(key);
+  }
+
   function startEdit(college: CollegeListItem) {
     setEditingKey(college.name);
     setEditName(college.name);
@@ -299,6 +354,85 @@ function CollegesAdmin() {
   function cancelEdit() {
     setEditingKey(null);
     setEditName("");
+  }
+
+  async function removeMember(collegeName: string, pid: string) {
+    setMemberActionPid(pid);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/admin/participants/${pid}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collegeName: "" }),
+      });
+      const body = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not remove student");
+      await loadCollegeMembers(collegeName);
+      await loadColleges(activeQuery, 0, false, {
+        force: true,
+        searchInputValue: searchInput,
+      });
+      setMessage("Student removed from college");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove student");
+    } finally {
+      setMemberActionPid(null);
+    }
+  }
+
+  async function addMember(collegeName: string, pid: string) {
+    setMessage("");
+    const res = await fetch(`/api/admin/participants/${pid}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collegeName }),
+    });
+    const body = (await res.json()) as { error?: string };
+    if (!res.ok) throw new Error(body.error ?? "Could not add student");
+    await loadCollegeMembers(collegeName);
+    await loadColleges(activeQuery, 0, false, {
+      force: true,
+      searchInputValue: searchInput,
+    });
+    setMessage("Student added to college");
+  }
+
+  async function deleteCollege(college: CollegeListItem) {
+    setDeletingCollegeKey(college.name);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/admin/colleges", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: college.id ?? undefined,
+          name: college.name,
+        }),
+      });
+      const body = (await res.json()) as { error?: string; unassigned?: number };
+      if (!res.ok) throw new Error(body.error ?? "Could not delete college");
+      setMessage(
+        body.unassigned
+          ? `Deleted “${college.name}” and unassigned ${body.unassigned} student(s)`
+          : `Deleted “${college.name}”`
+      );
+      setDeleteCollegeTarget(null);
+      if (expandedKey === college.name) setExpandedKey(null);
+      setMembersByCollege((prev) => {
+        const next = { ...prev };
+        delete next[college.name];
+        return next;
+      });
+      await loadColleges(activeQuery, 0, false, {
+        force: true,
+        searchInputValue: searchInput,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete college");
+    } finally {
+      setDeletingCollegeKey(null);
+    }
   }
 
   async function saveEdit(college: CollegeListItem) {
@@ -330,6 +464,18 @@ function CollegesAdmin() {
       );
       setEditingKey(null);
       setEditName("");
+      const newName = body.college?.name ?? name;
+      if (expandedKey === college.name && newName !== college.name) {
+        setExpandedKey(newName);
+        setMembersByCollege((prev) => {
+          const next = { ...prev };
+          if (next[college.name]) {
+            next[newName] = next[college.name]!;
+            delete next[college.name];
+          }
+          return next;
+        });
+      }
       await loadColleges(activeQuery, 0, false, {
         force: true,
         searchInputValue: searchInput,
@@ -394,13 +540,20 @@ function CollegesAdmin() {
         {results.map((college) => {
           const editing = editingKey === college.name;
           const busy = savingKey === college.name;
+          const expanded = expandedKey === college.name;
+          const members = membersByCollege[college.name] ?? [];
+          const loadingMembers = loadingMembersKey === college.name;
           return (
             <li
               key={college.id != null ? `id-${college.id}` : college.name}
-              className="rounded-xl border border-white/10 bg-[rgba(0,14,28,0.72)] p-4"
+              className={`group rounded-xl border bg-[rgba(0,14,28,0.72)] transition-[border-color,background-color,box-shadow] ${
+                expanded
+                  ? "border-[#75bee9]/25 shadow-[0_0_0_1px_rgba(117,190,233,0.08)]"
+                  : "border-white/10 hover:border-[#75bee9]/20 hover:bg-[rgba(0,18,36,0.82)]"
+              }`}
             >
               {editing ? (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center">
                   <input
                     type="text"
                     value={editName}
@@ -428,28 +581,158 @@ function CollegesAdmin() {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-white">{college.name}</p>
-                    <p className="mt-1 text-sm text-slate-300">
-                      <span className="font-semibold text-white">
-                        {college.participantCount}
-                      </span>{" "}
-                      student{college.participantCount === 1 ? "" : "s"}
-                      {" · "}
-                      <span className="text-slate-400">
-                        {college.completedCount} completed
-                      </span>
-                    </p>
+                <>
+                  <div className="flex items-start gap-3 p-4">
+                    <button
+                      type="button"
+                      onClick={() => void toggleExpanded(college)}
+                      className="min-w-0 flex-1 text-left"
+                      aria-expanded={expanded}
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <p className="truncate text-base font-semibold text-white">
+                          {college.name}
+                        </p>
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[0.6875rem] text-slate-300">
+                          <span className="font-semibold text-white">
+                            {college.participantCount}
+                          </span>
+                          student{college.participantCount === 1 ? "" : "s"}
+                        </span>
+                        <span className="inline-flex shrink-0 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[0.6875rem] text-emerald-300">
+                          {college.completedCount} completed
+                        </span>
+                      </div>
+                    </button>
+
+                    <div
+                      className="flex shrink-0 items-center gap-1 opacity-80 transition-opacity group-hover:opacity-100"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <AdminAddStudentDropdown
+                        collegeName={college.name}
+                        excludePids={members.map((m) => m.pid)}
+                        onAdd={async (pid) => {
+                          try {
+                            await addMember(college.name, pid);
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not add student"
+                            );
+                            throw err;
+                          }
+                        }}
+                      />
+                      <AdminRowMenu
+                        editLabel="Edit name"
+                        deleteLabel="Delete college"
+                        onEdit={() => startEdit(college)}
+                        onDelete={() => setDeleteCollegeTarget(college)}
+                      />
+                      <button
+                        type="button"
+                        aria-label={expanded ? "Collapse" : "Expand"}
+                        title={expanded ? "Collapse" : "Expand"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void toggleExpanded(college);
+                        }}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/12 text-slate-400 hover:border-white/25 hover:bg-white/[0.04] hover:text-white"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`}
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <path d="m6 9 6 6 6-6" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => startEdit(college)}
-                    className="rounded-lg border border-white/15 px-3 py-2 text-sm text-slate-300 hover:border-white/30 hover:text-white"
-                  >
-                    Edit name
-                  </button>
-                </div>
+
+                  {expanded && (
+                    <div className="border-t border-white/8 px-4 pb-4 pt-3">
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <p className="text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#6da6d3]">
+                          Students
+                          {!loadingMembers && (
+                            <span className="ml-1.5 normal-case tracking-normal text-slate-400">
+                              ({members.length})
+                            </span>
+                          )}
+                        </p>
+                        {!loadingMembers && members.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => void loadCollegeMembers(college.name)}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            Refresh
+                          </button>
+                        )}
+                      </div>
+
+                      {loadingMembers && (
+                        <ul className="space-y-2" aria-hidden>
+                          {[0, 1, 2].map((i) => (
+                            <li
+                              key={i}
+                              className="h-12 animate-pulse rounded-lg border border-white/6 bg-white/[0.03]"
+                            />
+                          ))}
+                        </ul>
+                      )}
+
+                      {!loadingMembers && members.length === 0 && (
+                        <p className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-sm text-slate-500">
+                          No students assigned yet. Use Add above.
+                        </p>
+                      )}
+
+                      {!loadingMembers && members.length > 0 && (
+                        <ul className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                          {members.map((member) => (
+                            <li
+                              key={member.pid}
+                              className="flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/[0.02] px-3 py-2.5"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-white">
+                                  {member.name}
+                                </p>
+                                <p className="truncate text-xs text-slate-400">
+                                  {member.email}
+                                  {member.score !== null
+                                    ? ` · ${member.score} pts`
+                                    : ""}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={memberActionPid === member.pid}
+                                onClick={() =>
+                                  void removeMember(college.name, member.pid)
+                                }
+                                className="shrink-0 rounded-lg border border-white/12 px-2.5 py-1 text-xs text-slate-400 hover:border-red-400/40 hover:text-red-300 disabled:opacity-40"
+                              >
+                                {memberActionPid === member.pid
+                                  ? "Removing…"
+                                  : "Remove"}
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </li>
           );
@@ -488,6 +771,51 @@ function CollegesAdmin() {
         }}
         onSave={handleAddCollege}
       />
+
+      {deleteCollegeTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 p-4 sm:items-center"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !deletingCollegeKey) {
+              setDeleteCollegeTarget(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-2xl border border-red-500/25 bg-[#001426] p-5 shadow-2xl"
+          >
+            <h2 className="text-lg font-semibold text-white">Delete college</h2>
+            <p className="mt-3 text-sm text-slate-300">
+              Delete <span className="font-semibold text-white">{deleteCollegeTarget.name}</span>?
+              All {deleteCollegeTarget.participantCount} assigned student(s) will be
+              unassigned. This cannot be undone.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={Boolean(deletingCollegeKey)}
+                onClick={() => setDeleteCollegeTarget(null)}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-slate-300 hover:border-white/30 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(deletingCollegeKey)}
+                onClick={() => void deleteCollege(deleteCollegeTarget)}
+                className="rounded-lg border border-red-500/50 bg-red-950/50 px-4 py-2 text-sm font-semibold text-red-200 hover:border-red-400 disabled:opacity-50"
+              >
+                {deletingCollegeKey === deleteCollegeTarget.name
+                  ? "Deleting…"
+                  : "Delete college"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

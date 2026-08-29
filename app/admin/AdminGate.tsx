@@ -30,11 +30,43 @@ function AdminChrome({
   const runRefresh = useAdminRefreshRunner();
   const stickyToolsRef = useRef<HTMLDivElement | null>(null);
   const [, bump] = useState(0);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   useEffect(() => {
     // Ensure portals can mount after the sticky tools target exists.
     bump((n) => n + 1);
   }, []);
+
+  async function handleDownload() {
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const res = await fetch("/api/admin/participants/export");
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "Download failed");
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get("Content-Disposition") ?? "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? "usd-participants.csv";
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(
+        err instanceof Error ? err.message : "Download failed"
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <main className="mx-auto min-h-dvh w-full max-w-5xl px-4 pb-8 sm:px-6">
@@ -66,6 +98,31 @@ function AdminChrome({
             </Link>
           </nav>
           <div className="flex items-center justify-end gap-2">
+            {section === "participants" && (
+              <button
+                type="button"
+                aria-label="Download participants CSV"
+                title="Download all participants (CSV for Google Sheets)"
+                disabled={downloading}
+                onClick={() => void handleDownload()}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/15 text-slate-300 hover:border-white/30 hover:text-white disabled:opacity-50"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
               aria-label="Refresh"
@@ -111,6 +168,9 @@ function AdminChrome({
             </button>
           </div>
         </div>
+        {downloadError && (
+          <p className="mt-2 text-right text-xs text-red-300">{downloadError}</p>
+        )}
         <div ref={stickyToolsRef} className="empty:hidden" />
       </div>
 

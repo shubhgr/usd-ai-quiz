@@ -4,6 +4,7 @@ import {
   addCollegeName,
   browseColleges,
   collegeCatalogSize,
+  deleteCollegeName,
   listCollegesByParticipation,
   listManagedColleges,
   renameCollegeName,
@@ -134,5 +135,42 @@ export async function PATCH(request: Request) {
           ? 409
           : 500;
     return NextResponse.json({ error: message }, { status });
+  }
+}
+
+export async function DELETE(request: Request) {
+  if (!(await isAdminRequest())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  let body: { id?: number; name?: string };
+  try {
+    body = (await request.json()) as { id?: number; name?: string };
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const id = typeof body.id === "number" ? body.id : Number(body.id);
+  if (!name) {
+    return NextResponse.json({ error: "College name is required" }, { status: 400 });
+  }
+
+  try {
+    const result = await deleteCollegeName({
+      id: Number.isFinite(id) && id > 0 ? id : null,
+      name,
+    });
+    invalidateCollegeLeaderboardCache();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("[admin colleges DELETE]", err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Could not delete college",
+      },
+      { status: 500 }
+    );
   }
 }

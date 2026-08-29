@@ -433,3 +433,78 @@ export async function renameManagedCollege(
   if (result.id == null) throw new Error("College not found");
   return { id: result.id, name: result.name, oldName: result.oldName };
 }
+
+export interface CollegeMember {
+  pid: string;
+  name: string;
+  email: string;
+  phone: string;
+  status: string;
+  score: number | null;
+}
+
+/** Participants assigned to a college (case-insensitive name match). */
+export async function listCollegeMembers(
+  collegeName: string
+): Promise<CollegeMember[]> {
+  const name = collegeName.trim();
+  if (!name || !hasDatabaseUrl()) return [];
+
+  const rows = await query<{
+    pid: string;
+    name: string;
+    email: string;
+    phone: string | null;
+    status: string;
+    score: number | null;
+  }>(
+    `SELECT
+       p.pid,
+       p.name,
+       p.email,
+       p.phone,
+       p.status,
+       a.score
+     FROM participants p
+     LEFT JOIN attempts a ON a.pid = p.pid
+     WHERE lower(trim(p.college_name)) = lower($1)
+     ORDER BY p.name ASC`,
+    [name]
+  );
+
+  return rows.map((r) => ({
+    pid: r.pid,
+    name: r.name,
+    email: r.email,
+    phone: (r.phone ?? "").trim(),
+    status: r.status,
+    score: r.score === null ? null : Number(r.score),
+  }));
+}
+
+/** Remove college from managed list and unassign all participants. */
+export async function deleteCollegeName(args: {
+  id?: number | null;
+  name: string;
+}): Promise<{ name: string; unassigned: number }> {
+  const name = args.name.trim().replace(/\s+/g, " ");
+  if (!name) throw new Error("College name is required");
+  if (!hasDatabaseUrl()) throw new Error("Database is not configured");
+
+  const id = typeof args.id === "number" && args.id > 0 ? args.id : null;
+  if (id) {
+    await query(`DELETE FROM colleges WHERE id = $1`, [id]);
+  }
+  await query(`DELETE FROM colleges WHERE lower(name) = lower($1)`, [name]);
+
+  const cleared = await query<{ pid: string }>(
+    `UPDATE participants
+       SET college_name = NULL
+     WHERE lower(trim(college_name)) = lower($1)
+     RETURNING pid`,
+    [name]
+  );
+
+  invalidateCollegeAdminListCache();
+  return { name, unassigned: cleared.length };
+}
